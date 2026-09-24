@@ -32,19 +32,20 @@ git clone https://github.com/tsyche/untapped.git
 cd untapped
 
 ./bin/untapped help
-./bin/untapped                 # first run: creates empty ~/.config/untapped/conf
+./bin/untapped                 # first run: prompt to seed conf from example (Enter = yes)
 ./bin/untapped add https://github.com/xo/usql
 ./bin/untapped list            # conf entries + installed / not on PATH (offline)
+./bin/untapped doctor         # conf path, dirs, counts, OS/arch (offline)
+./bin/untapped outdated        # installed vs latest; report only
 ./bin/untapped --yes           # install anything missing
 ./bin/untapped upgrade --yes   # check for updates
 ```
 
-First run with no conf seeds an empty `~/.config/untapped/conf` and exits with that `add` hint (plus an optional PATH symlink one-liner) — it never installs from the packaged example. Optional starter set instead:
+First run with no conf:
 
-```sh
-cp conf/untapped.conf.example ~/.config/untapped/conf
-$EDITOR ~/.config/untapped/conf
-```
+- **Interactive** — prompt `Seed from packaged example? [Y/n]`; Enter copies `conf/untapped.conf.example` → `~/.config/untapped/conf`, then prints next steps (review, `untapped add`, `untapped --yes`). Decline seeds an empty conf + `add` hint.
+- **`--yes`** — takes the default (seed from example); no install until you run again.
+- **No TTY, no `--yes`** — empty conf + guidance (script-safe); never installs from the packaged example implicitly.
 
 Optional: put `bin/` on `PATH`, or symlink:
 
@@ -55,8 +56,8 @@ ln -s "$PWD/bin/untapped" ~/.local/bin/untapped
 ### Conf discovery order
 
 1. `-c /path/to/conf`
-2. `~/.config/untapped/conf` (created empty on first run if missing)
-3. packaged `conf/untapped.conf.example` only when you pass `-c` at it — never used implicitly
+2. `~/.config/untapped/conf` (first run: prompt to seed from example, or empty if non-interactive without `--yes`)
+3. packaged `conf/untapped.conf.example` only when you pass `-c` at it — never used implicitly as install source
 
 ### Environment
 
@@ -72,6 +73,8 @@ ln -s "$PWD/bin/untapped" ~/.local/bin/untapped
 untapped                 install missing packages
 untapped upgrade         check for updates, install anything behind
 untapped list            show conf entries + install status (no network)
+untapped doctor          print conf/paths/counts (no network)
+untapped outdated        list installed vs latest (no install)
 untapped add <url|o/r>   inspect a GH release; append a conf line
 untapped help            show help
 
@@ -102,7 +105,7 @@ Flags: `-c PATH` (conf to append), `--name` (override package name), `--asset` (
 ## Conf format
 
 ```
-name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter
+name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin
 ```
 
 | Column | Required | Notes |
@@ -113,14 +116,15 @@ name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter
 | `binary_in_archive` | yes | relative path inside archive; supports `{VERSION}`; `*.app/Contents/MacOS/*` keeps the whole bundle |
 | `os_filter` | no | `darwin` or `linux` |
 | `arch_filter` | no | `arm64` or `amd64` |
+| `version_pin` | no | pin a release tag (e.g. `v1.2.3`); empty = latest |
 
 Placeholders:
 
-- `{VERSION}` — latest release tag, `v` prefix stripped (e.g. `0.21.4`)
+- `{VERSION}` — release tag, `v` prefix stripped (latest, or `version_pin` if set)
 - `{OS}` — `darwin` or `linux`
 - `{ARCH}` — `arm64` or `amd64`
 
-Omit (or leave empty) `os_filter` / `arch_filter` to match any. Mismatched entries are skipped with a reason in the exit summary, before download.
+Omit (or leave empty) `os_filter` / `arch_filter` / `version_pin` to match any / use latest. Mismatched entries are skipped with a reason in the exit summary, before download.
 
 ### Examples
 

@@ -1,16 +1,19 @@
 # GitHub release binaries to install when not already in PATH.
 # Copy this file to ~/.config/untapped/conf and edit — no script changes needed.
 #
-# Format: name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter
+# Format: name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin
 #
 # Placeholders in asset_pattern:
-#   {VERSION} — latest release tag, v-prefix stripped (e.g. 0.21.4)
+#   {VERSION} — release tag, v-prefix stripped (latest, or version_pin if set)
 #   {OS}      — darwin or linux
 #   {ARCH}    — arm64 or amd64
 #
 # os_filter / arch_filter: omit (or leave empty) to match any.
 # Mismatched entries are skipped (with a reason in the exit summary)
 # before anything is downloaded.
+#
+# version_pin (optional): pin a release tag (e.g. v1.2.3). Install/upgrade
+# use that tag instead of the latest; leave empty for latest.
 #
 # binary_in_archive matching *.app/Contents/MacOS/* is treated as a macOS app
 # bundle: the whole bundle is preserved under ~/.local/opt/<name> and

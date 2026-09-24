@@ -21,7 +21,7 @@ just sync-docs       # CLAUDE.md <-> AGENTS.md
 ## Key files
 
 - `bin/untapped` — CLI entry; dispatches `add` → `lib/add.sh`, else `lib/install.sh`
-- `lib/install.sh` — install/upgrade/list engine + conf discovery + first-run seed
+- `lib/install.sh` — install/upgrade/list/doctor/outdated engine + conf discovery + first-run seed
 - `lib/common.sh` — shared field validation, GitHub downloads, archive inspection
 - `lib/add.sh` — GitHub URL → conf line (asset pick, binary sniff, append)
 - `conf/untapped.conf.example` — packaging shapes; never used implicitly
@@ -30,6 +30,6 @@ just sync-docs       # CLAUDE.md <-> AGENTS.md
 
 ## Notes
 
-- First run with no conf seeds empty `~/.config/untapped/conf` and exits with `untapped add` guidance.
+- First run with no conf: interactive prompt seeds from example (Enter = yes) or empty conf; `--yes` seeds example; no TTY without `--yes` seeds empty. Never auto-installs on first run.
 - Version state: `~/.local/share/untapped/installed.conf` (one-time import from legacy ghr path if present).
 - Personal package list lives in scriptorium conf, not this repo.

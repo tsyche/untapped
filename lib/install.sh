@@ -8,6 +8,8 @@
 #   install.sh                 install missing packages
 #   install.sh upgrade         check for updates, reinstall anything behind
 #   install.sh list            show conf entries + install status (no network)
+#   install.sh doctor          print conf/paths/counts (no network)
+#   install.sh outdated        list installed vs latest (no install)
 #   install.sh --yes           non-interactive; accept all prompts
 #   install.sh --dry-run       show what would change; install nothing
 #   install.sh -c PATH         conf file (default: ~/.config/untapped/conf;
@@ -29,6 +31,8 @@ Usage:
   untapped                 install missing packages
   untapped upgrade         check for updates, install anything behind
   untapped list            show conf entries + install status (no network)
+  untapped doctor          print conf/paths/counts (no network)
+  untapped outdated        list installed vs latest (no install)
   untapped add <url|o/r>   inspect a GH release; append a conf line
   untapped help            show this help
 
@@ -46,6 +50,8 @@ EOF
 
 UPGRADE=false
 LIST=false
+DOCTOR=false
+OUTDATED=false
 YES=false
 DRY_RUN=false
 CONF=""
@@ -58,6 +64,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     list)
       LIST=true
+      shift
+      ;;
+    doctor)
+      DOCTOR=true
+      shift
+      ;;
+    outdated)
+      OUTDATED=true
+      UPGRADE=true
       shift
       ;;
     --yes|-y)
@@ -121,12 +136,36 @@ if [[ -n "$CONF" ]]; then
 elif [[ -f "$DEFAULT_USER_CONF" ]]; then
   CONF="$DEFAULT_USER_CONF"
 else
-  # First run: seed an empty user conf, point at `untapped add`, exit.
+  # First run: no conf. Interactive: prompt to seed from example (default Y).
+  # --yes takes the default. No TTY and no --yes: empty conf (script-safe).
   # Never auto-install from the packaged example.
   mkdir -p "$(dirname "$DEFAULT_USER_CONF")"
+  seed_from_example=false
+  if $YES; then
+    seed_from_example=true
+  elif [[ -t 0 ]]; then
+    reply=""
+    read -r -p "No conf found. Seed from packaged example? [Y/n] " reply || true
+    if [[ -z "$reply" || "$reply" == [yY] || "$reply" == [yY][eE][sS] ]]; then
+      seed_from_example=true
+    fi
+  fi
+
+  if $seed_from_example; then
+    cp "$EXAMPLE_CONF" "$DEFAULT_USER_CONF"
+    CONF="$DEFAULT_USER_CONF"
+    echo "Seeded conf from example: $CONF"
+    echo ""
+    echo "Next:"
+    echo "  Review the conf:  \$EDITOR $CONF"
+    echo "  Add a package:    untapped add https://github.com/owner/repo"
+    echo "  Install:          untapped --yes"
+    exit 0
+  fi
+
   cat > "$DEFAULT_USER_CONF" <<'EOF'
 # untapped package list — one per line.
-# Format: name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter
+# Format: name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin
 # Add a package:  untapped add https://github.com/owner/repo
 # Starter set:    cp conf/untapped.conf.example ~/.config/untapped/conf
 EOF
@@ -136,7 +175,7 @@ EOF
   echo "Add packages with:"
   echo "  untapped add https://github.com/owner/repo"
   echo ""
-  echo "Or seed from the example:"
+  echo "Or seed from the example (interactive first run offers this):"
   echo "  cp $EXAMPLE_CONF $DEFAULT_USER_CONF"
   echo ""
   echo "Optional — put untapped on PATH (symlink):"
@@ -147,7 +186,7 @@ EOF
 fi
 
 # Friendly hint when conf has no package lines (comments/blank only).
-if ! $LIST && ! grep -qve '^[[:space:]]*#' -e '^[[:space:]]*$' "$CONF"; then
+if ! $LIST && ! $DOCTOR && ! grep -qve '^[[:space:]]*#' -e '^[[:space:]]*$' "$CONF"; then
   echo "No packages configured yet."
   echo "  untapped add https://github.com/owner/repo"
   echo ""
@@ -172,15 +211,48 @@ get_installed_version() {
   awk -F= -v n="$name" '$1 == n {sub(/^[^=]*=/, ""); print; exit}' "$VERSION_FILE"
 }
 
+# --- doctor: local paths + package counts (no network) ---
+if $DOCTOR; then
+  total=0
+  installed_n=0
+  missing_n=0
+  filtered_n=0
+  while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin || [[ -n "$name" ]]; do
+    name="${name//[[:space:]]/}"
+    [[ -z "$name" || "$name" == \#* ]] && continue
+    os_filter="${os_filter// /}"
+    arch_filter="${arch_filter// /}"
+    version_pin="${version_pin// /}"
+    total=$((total + 1))
+    if [[ -n "$os_filter" && "$os_filter" != "$OS" ]] \
+      || [[ -n "$arch_filter" && "$arch_filter" != "$ARCH" ]]; then
+      filtered_n=$((filtered_n + 1))
+    elif command -v "$name" &>/dev/null; then
+      installed_n=$((installed_n + 1))
+    else
+      missing_n=$((missing_n + 1))
+    fi
+  done < "$CONF"
+  echo "conf:          $CONF"
+  echo "bin dir:       $INSTALL_DIR"
+  echo "share dir:     $VERSION_DIR"
+  echo "version state: $VERSION_FILE"
+  echo "os:            $OS"
+  echo "arch:          $ARCH"
+  echo "packages:      $total configured, $installed_n installed, $missing_n missing, $filtered_n filtered"
+  exit 0
+fi
+
 # --- list: local inventory only (conf + PATH + version state; no network) ---
 if $LIST; then
   printf '%-24s %s\n' "PACKAGE" "STATUS"
-  while IFS='|' read -r name repo pattern binary os_filter arch_filter || [[ -n "$name" ]]; do
+  while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin || [[ -n "$name" ]]; do
     name="${name//[[:space:]]/}"
     [[ -z "$name" || "$name" == \#* ]] && continue
     valid_name "$name" || { echo "untapped: invalid package name: $name" >&2; exit 1; }
     os_filter="${os_filter// /}"
     arch_filter="${arch_filter// /}"
+    version_pin="${version_pin// /}"
 
     if [[ -n "$os_filter" && "$os_filter" != "$OS" ]]; then
       status="not available on $OS"
@@ -391,7 +463,7 @@ updated_count=0
 would_install=()
 would_upgrade=()
 
-while IFS='|' read -r name repo pattern binary os_filter arch_filter || [[ -n "$name" ]]; do
+while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin || [[ -n "$name" ]]; do
   name="${name//[[:space:]]/}"
   [[ -z "$name" || "$name" == \#* ]] && continue
   repo="${repo// /}"
@@ -399,8 +471,9 @@ while IFS='|' read -r name repo pattern binary os_filter arch_filter || [[ -n "$
   binary="${binary// /}"
   os_filter="${os_filter// /}"
   arch_filter="${arch_filter// /}"
+  version_pin="${version_pin// /}"
 
-  if ! validate_entry "$name" "$repo" "$pattern" "$binary" "$os_filter" "$arch_filter"; then
+  if ! validate_entry "$name" "$repo" "$pattern" "$binary" "$os_filter" "$arch_filter" "$version_pin"; then
     failed+=("$name|invalid conf entry")
     continue
   fi
@@ -416,24 +489,34 @@ while IFS='|' read -r name repo pattern binary os_filter arch_filter || [[ -n "$
 
   if $UPGRADE; then
     if ! command -v "$name" &>/dev/null; then
-      to_install+=("$name|$repo|$pattern|$binary")
+      to_install+=("$name|$repo|$pattern|$binary|$version_pin")
       to_install_names+=("$name")
     else
-      local_tag=$(fetch_latest_tag "$repo")
+      if [[ -n "$version_pin" ]]; then
+        local_tag="$version_pin"
+      else
+        local_tag=$(fetch_latest_tag "$repo")
+      fi
       latest="${local_tag#v}"
       installed=$(get_installed_version "$name")
       if [[ -z "$local_tag" ]]; then
         failed+=("$name|could not fetch latest release tag")
       elif [[ -z "$installed" || "$installed" != "$latest" ]]; then
         to_upgrade+=("$name|$repo|$pattern|$binary|$local_tag|$latest")
-        to_upgrade_display+=("$name: ${installed:-unknown} → $latest")
+        if [[ -n "$version_pin" ]]; then
+          to_upgrade_display+=("$name: ${installed:-unknown} → $latest (pinned)")
+        else
+          to_upgrade_display+=("$name: ${installed:-unknown} → $latest")
+        fi
+      elif [[ -n "$version_pin" ]]; then
+        echo "current $name ($installed, pinned)"
       else
         echo "current $name ($installed)"
       fi
     fi
   else
     if ! command -v "$name" &>/dev/null; then
-      to_install+=("$name|$repo|$pattern|$binary")
+      to_install+=("$name|$repo|$pattern|$binary|$version_pin")
       to_install_names+=("$name")
     else
       echo "skip $name (already installed: $(command -v "$name"))"
@@ -441,6 +524,33 @@ while IFS='|' read -r name repo pattern binary os_filter arch_filter || [[ -n "$
     fi
   fi
 done < "$CONF"
+
+# --- outdated: report only, never install ---
+if $OUTDATED; then
+  echo ""
+  if [[ ${#to_upgrade_display[@]} -gt 0 ]]; then
+    echo "Outdated:"
+    for d in "${to_upgrade_display[@]}"; do echo "  • $d"; done
+  else
+    echo "All installed utilities are current."
+  fi
+  if [[ ${#to_install_names[@]} -gt 0 ]]; then
+    echo ""
+    echo "Not installed:"
+    for n in "${to_install_names[@]}"; do echo "  • $n"; done
+  fi
+  if [[ ${#failed[@]} -gt 0 ]]; then
+    echo ""
+    echo "Failed:"
+    for s in "${failed[@]}"; do
+      n="${s%%|*}"
+      r="${s#*|}"
+      echo "  • $n — $r"
+    done
+    exit 1
+  fi
+  exit 0
+fi
 
 # --- Install missing ---
 if [[ ${#to_install[@]} -gt 0 ]]; then
@@ -452,9 +562,13 @@ if [[ ${#to_install[@]} -gt 0 ]]; then
     would_install=("${to_install_names[@]}")
   elif prompt_yes "Install them now?" true; then
     for entry in "${to_install[@]}"; do
-      IFS='|' read -r name repo pattern binary <<< "$entry"
+      IFS='|' read -r name repo pattern binary version_pin <<< "$entry"
       echo "installing $name..."
-      tag=$(fetch_latest_tag "$repo")
+      if [[ -n "$version_pin" ]]; then
+        tag="$version_pin"
+      else
+        tag=$(fetch_latest_tag "$repo")
+      fi
       version="${tag#v}"
       if [[ -z "$tag" ]]; then
         failed+=("$name|could not fetch latest release tag")

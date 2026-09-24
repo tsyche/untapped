@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 # Install path with mocked curl: flat binary, checksum, .app bundle, failures.
+# shellcheck disable=SC2030,SC2031
 
 load test_helper
 
@@ -162,4 +163,47 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"imported installed versions from legacy ghr state"* ]]
   grep -q '^legacybin=0.9.0$' "$HOME/.local/share/untapped/installed.conf"
+}
+
+@test "version_pin installs pinned tag instead of latest" {
+  stage="$(mktemp -d)"
+  printf '#!/bin/sh\necho pinned\n' > "$stage/pinbin"
+  chmod +x "$stage/pinbin"
+  tar -czf "$TEST_TMP/pinbin-1.0.0.tar.gz" -C "$stage" pinbin
+  rm -rf "$stage"
+
+  write_api_json ex pinbin v9.9.9
+  write_asset "pinbin-1.0.0.tar.gz" "$TEST_TMP/pinbin-1.0.0.tar.gz"
+
+  write_conf "$TEST_TMP/conf" \
+    "pinbin | ex/pinbin | pinbin-{VERSION}.tar.gz | pinbin | | | v1.0.0"
+
+  run run_untapped --yes -c "$TEST_TMP/conf"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pinbin 1.0.0"* ]]
+  grep -q '^pinbin=1.0.0$' "$UNTAPPED_SHARE_DIR/installed.conf"
+  [ -x "$UNTAPPED_BIN_DIR/pinbin" ]
+}
+
+@test "version_pin upgrade stays on pin even when latest is newer" {
+  stage="$(mktemp -d)"
+  printf '#!/bin/sh\necho pin-up\n' > "$stage/pinup"
+  chmod +x "$stage/pinup"
+  tar -czf "$TEST_TMP/pinup-1.2.3.tar.gz" -C "$stage" pinup
+  rm -rf "$stage"
+
+  printf '#!/bin/sh\necho installed\n' > "$UNTAPPED_BIN_DIR/pinup"
+  chmod +x "$UNTAPPED_BIN_DIR/pinup"
+  printf 'pinup=1.0.0\n' > "$UNTAPPED_SHARE_DIR/installed.conf"
+
+  write_api_json ex pinup v9.9.9
+  write_asset "pinup-1.2.3.tar.gz" "$TEST_TMP/pinup-1.2.3.tar.gz"
+
+  write_conf "$TEST_TMP/conf" \
+    "pinup | ex/pinup | pinup-{VERSION}.tar.gz | pinup | | | v1.2.3"
+
+  run run_untapped upgrade --yes -c "$TEST_TMP/conf"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pinup: 1.0.0 → 1.2.3 (pinned)"* ]]
+  grep -q '^pinup=1.2.3$' "$UNTAPPED_SHARE_DIR/installed.conf"
 }

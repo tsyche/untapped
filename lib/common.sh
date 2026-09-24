@@ -21,10 +21,16 @@ valid_asset() {
   safe_relative_path "$1" && [[ "$1" != */* && "$1" != . && "$1" != .. ]]
 }
 
+valid_version_pin() {
+  [[ -z "$1" ]] && return 0
+  [[ "$1" != *[[:cntrl:]]* && "$1" != *'|'* ]]
+}
+
 validate_entry() {
   valid_name "$1" && valid_repo "$2" && valid_asset "$3" && safe_relative_path "$4" \
     && [[ "$5" == '' || "$5" == darwin || "$5" == linux ]] \
-    && [[ "$6" == '' || "$6" == arm64 || "$6" == amd64 ]]
+    && [[ "$6" == '' || "$6" == arm64 || "$6" == amd64 ]] \
+    && valid_version_pin "${7:-}"
 }
 
 github_curl() {
