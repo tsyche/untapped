@@ -106,17 +106,36 @@ teardown() {
   [ ! -e "$UNTAPPED_BIN_DIR/neverbin" ]
 }
 
-@test "already installed package is skipped with reason" {
+@test "bare run reports installed package as current, does not reinstall" {
   printf '#!/bin/sh\necho fake\n' > "$UNTAPPED_BIN_DIR/fakebin"
   chmod +x "$UNTAPPED_BIN_DIR/fakebin"
   # Put test bin dir on PATH so command -v finds it
   PATH="$UNTAPPED_BIN_DIR:$PATH"
   export PATH
+  printf 'fakebin=1.0.0\n' > "$UNTAPPED_SHARE_DIR/installed.conf"
+  write_api_json ex fakebin v1.0.0
   write_conf "$TEST_TMP/conf" \
     "fakebin | ex/fakebin | fakebin-{VERSION}.tar.gz | fakebin | |"
   run run_untapped --dry-run --yes -c "$TEST_TMP/conf"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"fakebin — already installed"* ]]
+  [[ "$output" == *"current fakebin (1.0.0)"* ]]
+  [[ "$output" != *"Would install:"* ]]
+}
+
+@test "bare run discovers upgrades without the upgrade subcommand" {
+  printf '#!/bin/sh\necho fake\n' > "$UNTAPPED_BIN_DIR/fakebin"
+  chmod +x "$UNTAPPED_BIN_DIR/fakebin"
+  PATH="$UNTAPPED_BIN_DIR:$PATH"
+  export PATH
+  printf 'fakebin=0.9.0\n' > "$UNTAPPED_SHARE_DIR/installed.conf"
+  write_api_json ex fakebin v1.0.0
+  write_conf "$TEST_TMP/conf" \
+    "fakebin | ex/fakebin | fakebin-{VERSION}.tar.gz | fakebin | |"
+  run run_untapped --dry-run --yes -c "$TEST_TMP/conf"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"fakebin: 0.9.0 → 1.0.0"* ]]
+  [[ "$output" == *"Would update:"* ]]
+  grep -q '^fakebin=0.9.0$' "$UNTAPPED_SHARE_DIR/installed.conf"
 }
 
 @test "summary always prints counts" {

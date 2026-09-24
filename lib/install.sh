@@ -32,11 +32,13 @@ usage() {
 untapped — install/upgrade CLI binaries from release hosts (GitHub or plain HTTPS)
 
 Usage:
-  untapped                 install missing packages
-  untapped upgrade         check for updates, install anything behind
+  untapped                 install missing packages; upgrade outdated ones
+  untapped upgrade         same as bare untapped (familiar from brew)
   untapped list            show conf entries + install status (no network)
   untapped doctor          print conf/paths/counts (no network)
   untapped outdated        list installed vs latest (no install)
+  untapped lint            validate every conf line (no network)
+  untapped why <name>      show one entry: conf line, filters, install state
   untapped add <url|o/r>   inspect a GH release; append a conf line
   untapped remove <name>... drop conf line + uninstall binary/state
   untapped help            show this help
@@ -58,10 +60,12 @@ Environment:
 EOF
 }
 
-UPGRADE=false
 LIST=false
 DOCTOR=false
 OUTDATED=false
+LINT=false
+WHY_NAME=""
+WHY_EXPECT=false
 YES=false
 DRY_RUN=false
 CONF=""
@@ -71,7 +75,7 @@ RETRIES_ARG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     upgrade|--upgrade)
-      UPGRADE=true
+      # Accepted as an alias: the bare command already installs and upgrades.
       shift
       ;;
     list)
@@ -84,7 +88,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     outdated)
       OUTDATED=true
-      UPGRADE=true
+      shift
+      ;;
+    lint)
+      LINT=true
+      shift
+      ;;
+    why)
+      WHY_EXPECT=true
       shift
       ;;
     --yes|-y)
@@ -124,12 +135,23 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "untapped: unknown argument: $1" >&2
-      usage >&2
-      exit 1
+      if $WHY_EXPECT; then
+        WHY_NAME="$1"
+        WHY_EXPECT=false
+        shift
+      else
+        echo "untapped: unknown argument: $1" >&2
+        usage >&2
+        exit 1
+      fi
       ;;
   esac
 done
+
+if $WHY_EXPECT; then
+  echo "untapped: why requires a package name" >&2
+  exit 1
+fi
 
 # Flag > env > default. Export the effective retries value so background
 # install jobs and http_curl_retry agree on it.
@@ -229,7 +251,8 @@ EOF
 fi
 
 # Friendly hint when conf has no package lines (comments/blank only).
-if ! $LIST && ! $DOCTOR && ! grep -qve '^[[:space:]]*#' -e '^[[:space:]]*$' "$CONF"; then
+if ! $LIST && ! $DOCTOR && ! $LINT && [[ -z "$WHY_NAME" ]] \
+  && ! grep -qve '^[[:space:]]*#' -e '^[[:space:]]*$' "$CONF"; then
   echo "No packages configured yet."
   echo "  untapped add https://github.com/owner/repo"
   echo ""
@@ -253,6 +276,139 @@ get_installed_version() {
   local name="$1"
   awk -F= -v n="$name" '$1 == n {sub(/^[^=]*=/, ""); print; exit}' "$VERSION_FILE"
 }
+
+# --- lint: validate every conf line with line-numbered messages (no network) ---
+if $LINT; then
+  errors=0
+  entries=0
+  lineno=0
+  seen_names=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lineno=$((lineno + 1))
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "$trimmed" || "$trimmed" == \#* ]] && continue
+    entries=$((entries + 1))
+    IFS='|' read -r name source pattern binary os_filter arch_filter version_pin version_rule <<< "$line"
+    # Trim exactly like the install engine does before validate_entry.
+    name="${name//[[:space:]]/}"
+    source="${source// /}"
+    pattern="${pattern// /}"
+    binary="${binary// /}"
+    os_filter="${os_filter// /}"
+    arch_filter="${arch_filter// /}"
+    version_pin="${version_pin// /}"
+    version_rule="${version_rule#"${version_rule%%[![:space:]]*}"}"
+    if ! valid_name "$name"; then
+      echo "line $lineno: invalid package name: '$name'"
+      errors=$((errors + 1))
+    elif [[ " $seen_names " == *" $name "* ]]; then
+      echo "line $lineno: duplicate package name: '$name'"
+      errors=$((errors + 1))
+    else
+      seen_names="$seen_names $name"
+    fi
+    if ! safe_relative_path "$binary" || [[ -z "$binary" ]]; then
+      echo "line $lineno: invalid binary name: '$binary'"
+      errors=$((errors + 1))
+    fi
+    if is_generic_source "$source"; then
+      if ! valid_source "$source"; then
+        echo "line $lineno: generic source must be an https URL without spaces or '|': '$source'"
+        errors=$((errors + 1))
+      fi
+      if ! valid_url_template "$pattern"; then
+        echo "line $lineno: asset_pattern must be an https URL template: '$pattern'"
+        errors=$((errors + 1))
+      elif [[ "$pattern" != *'{VERSION}'* ]]; then
+        echo "line $lineno: asset_pattern has no {VERSION} placeholder: '$pattern'"
+        errors=$((errors + 1))
+      fi
+    else
+      if ! valid_repo "$source"; then
+        echo "line $lineno: GitHub source must be owner/repo: '$source'"
+        errors=$((errors + 1))
+      fi
+      if ! valid_asset "$pattern"; then
+        echo "line $lineno: asset must be a plain filename: '$pattern'"
+        errors=$((errors + 1))
+      fi
+    fi
+    if [[ -n "$os_filter" && "$os_filter" != darwin && "$os_filter" != linux ]]; then
+      echo "line $lineno: invalid os_filter '$os_filter' (use darwin, linux, or empty)"
+      errors=$((errors + 1))
+    fi
+    if [[ -n "$arch_filter" && "$arch_filter" != arm64 && "$arch_filter" != amd64 ]]; then
+      echo "line $lineno: invalid arch_filter '$arch_filter' (use arm64, amd64, or empty)"
+      errors=$((errors + 1))
+    fi
+    if ! valid_version_pin "$version_pin"; then
+      echo "line $lineno: invalid version_pin (no '|' or control characters)"
+      errors=$((errors + 1))
+    fi
+    if ! valid_version_rule "$version_rule"; then
+      echo "line $lineno: invalid version_rule regex: '$version_rule'"
+      errors=$((errors + 1))
+    fi
+  done < "$CONF"
+  printf 'lint: %d entries, %d errors in %s\n' "$entries" "$errors" "$CONF"
+  if [[ "$errors" -gt 0 ]]; then
+    exit 1
+  fi
+  exit 0
+fi
+
+# --- why: one package's full story from conf + PATH + version state ---
+if [[ -n "$WHY_NAME" ]]; then
+  if ! valid_name "$WHY_NAME"; then
+    echo "untapped: invalid package name: $WHY_NAME" >&2
+    exit 1
+  fi
+  found=false
+  lineno=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lineno=$((lineno + 1))
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "$trimmed" || "$trimmed" == \#* ]] && continue
+    IFS='|' read -r name source pattern binary os_filter arch_filter version_pin version_rule <<< "$line"
+    name="${name//[[:space:]]/}"
+    [[ "$name" != "$WHY_NAME" ]] && continue
+    found=true
+    source="${source// /}"
+    pattern="${pattern// /}"
+    binary="${binary// /}"
+    os_filter="${os_filter// /}"
+    arch_filter="${arch_filter// /}"
+    version_pin="${version_pin// /}"
+    version_rule="${version_rule#"${version_rule%%[![:space:]]*}"}"
+    filters=""
+    [[ -n "$os_filter" ]] && filters="os=$os_filter"
+    [[ -n "$arch_filter" ]] && filters="${filters:+$filters }arch=$arch_filter"
+    echo "package:  $name"
+    echo "conf:     $CONF:$lineno"
+    echo "source:   $source"
+    echo "asset:    $pattern"
+    echo "binary:   $binary"
+    echo "filters:  ${filters:-none}"
+    echo "pin:      ${version_pin:-(none)}"
+    echo "rule:     ${version_rule:-(default)}"
+    if [[ ( -n "$os_filter" && "$os_filter" != "$OS" ) \
+      || ( -n "$arch_filter" && "$arch_filter" != "$ARCH" ) ]]; then
+      echo "status:   not applied on $OS/$ARCH (filtered by ${filters})"
+    elif path="$(command -v "$name" 2>/dev/null)"; then
+      ver="$(get_installed_version "$name")"
+      echo "status:   installed: $path${ver:+ ($ver)}"
+    else
+      echo "status:   not on PATH"
+    fi
+    break
+  done < "$CONF"
+  if [[ "$found" != true ]]; then
+    echo "untapped: package not in conf: $WHY_NAME" >&2
+    echo "Hint: untapped list shows configured packages." >&2
+    exit 1
+  fi
+  exit 0
+fi
 
 # --- doctor: local paths + package counts (no network) ---
 if $DOCTOR; then
@@ -698,23 +854,13 @@ while IFS='|' read -r name source pattern binary os_filter arch_filter version_p
     continue
   fi
 
-  if $UPGRADE; then
-    if ! command -v "$name" &>/dev/null; then
-      to_install+=("$name|$source|$pattern|$binary|$version_pin|$version_rule")
-      to_install_names+=("$name")
-    else
-      PEND_META+=("$name|$source|$pattern|$binary")
-      PEND_PIN+=("$version_pin")
-      PEND_RULE+=("$version_rule")
-    fi
+  if ! command -v "$name" &>/dev/null; then
+    to_install+=("$name|$source|$pattern|$binary|$version_pin|$version_rule")
+    to_install_names+=("$name")
   else
-    if ! command -v "$name" &>/dev/null; then
-      to_install+=("$name|$source|$pattern|$binary|$version_pin|$version_rule")
-      to_install_names+=("$name")
-    else
-      echo "skip $name (already installed: $(command -v "$name"))"
-      skipped+=("$name|already installed")
-    fi
+    PEND_META+=("$name|$source|$pattern|$binary")
+    PEND_PIN+=("$version_pin")
+    PEND_RULE+=("$version_rule")
   fi
 done < "$CONF"
 
@@ -819,8 +965,6 @@ if [[ ${#to_install[@]} -gt 0 ]]; then
   elif ! $DRY_RUN; then
     for n in "${to_install_names[@]}"; do skipped+=("$n|user declined install"); done
   fi
-elif ! $UPGRADE && ! $DRY_RUN; then
-  echo "All configured utilities already installed."
 fi
 
 # --- Upgrade available ---
@@ -842,7 +986,7 @@ if [[ ${#to_upgrade[@]} -gt 0 ]]; then
       skipped+=("$n|user declined upgrade")
     done
   fi
-elif $UPGRADE && [[ ${#to_install[@]} -eq 0 ]] && [[ ${#failed[@]} -eq 0 ]] && ! $DRY_RUN; then
+elif [[ ${#to_install[@]} -eq 0 ]] && [[ ${#failed[@]} -eq 0 ]] && ! $DRY_RUN; then
   echo "All installed utilities are current."
 fi
 

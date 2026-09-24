@@ -4,6 +4,9 @@
 
 ## Shipped index
 
+- [x] 2026-09-24 — `untapped lint` (conf validator)
+- [x] 2026-09-24 — `untapped why <name>` (single-entry debug)
+- [x] 2026-09-24 — `untapped add` for non-GitHub sources (version-page, one-shot, candidate suggestions)
 - [x] 2026-09-24 — Non-GitHub hosts (generic HTTPS sources)
 - [x] 2026-09-24 — Parallel installs / retry
 - [x] 2026-09-24 — `untapped remove`
@@ -20,6 +23,18 @@
 - [x] 2026-09-23 — One-time legacy ghr version-state migration
 
 ## Archived entries
+
+### 2026-09-24 — `untapped lint` (conf validator)
+
+- **`untapped lint`** — standalone conf validator: field-level checks with line numbers (name, source/asset kind, filters, pin, version_rule regex, duplicate names, generic `{VERSION}` placeholder), engine-trim semantics, exit 1 on any error. Effort: S
+
+### 2026-09-24 — `untapped why <name>` (single-entry debug)
+
+- **`untapped why <name>`** — one package's full story: conf line + line number, source/asset/binary, filters, pin, rule, plus status (installed path + recorded version, not on PATH, or filtered out). Effort: S
+
+### 2026-09-24 — `untapped add` for non-GitHub sources (version-page, one-shot, candidate suggestions)
+
+1. **`untapped add` for non-GitHub sources** — version-page flow (probe page, prompt or `--asset`), one-shot direct-download-URL flow (version/source/name from the URL), and page-scraped archive candidates with numbered selection (`--yes` auto-picks the best version/OS/arch match). Effort: M
 
 ### 2026-09-24 — Non-GitHub hosts (generic HTTPS sources)
 

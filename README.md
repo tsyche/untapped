@@ -37,8 +37,10 @@ cd untapped
 ./bin/untapped list            # conf entries + installed / not on PATH (offline)
 ./bin/untapped doctor         # conf path, dirs, counts, OS/arch (offline)
 ./bin/untapped outdated        # installed vs latest; report only
-./bin/untapped --yes           # install anything missing
-./bin/untapped upgrade --yes   # check for updates
+./bin/untapped lint            # validate every conf line (offline)
+./bin/untapped why <name>      # one entry: conf line, filters, status (offline)
+./bin/untapped --yes           # install anything missing + upgrade anything behind
+./bin/untapped upgrade --yes   # alias of the bare command
 ./bin/untapped remove <name>   # drop conf entry + uninstall
 ```
 
@@ -73,11 +75,13 @@ ln -s "$PWD/bin/untapped" ~/.local/bin/untapped
 ## CLI
 
 ```
-untapped                 install missing packages
-untapped upgrade         check for updates, install anything behind
+untapped                 install missing packages; upgrade outdated ones
+untapped upgrade         same as bare untapped (familiar from brew)
 untapped list            show conf entries + install status (no network)
 untapped doctor          print conf/paths/counts (no network)
 untapped outdated        list installed vs latest (no install)
+untapped lint            validate every conf line (no network)
+untapped why <name>      show one entry: conf line, filters, install state
 untapped add <url|o/r>   inspect a GH release; append a conf line
 untapped remove <name>... drop conf line + uninstall binary/state
 untapped help            show help
@@ -92,6 +96,8 @@ Options:
 ```
 
 Non-interactive runs without `--yes` fail fast with a clear message (no silent hang). Cron/launchd should pass `--yes`.
+
+Coming from brew? `untapped outdated` ≈ `brew outdated`, and the bare `untapped` (or `untapped upgrade`) ≈ `brew update && brew upgrade` — no separate update step, because version metadata is fetched live on each run rather than cached. The bare run also installs anything in your conf that's missing: your conf declares intent, so one command converges reality to it.
 
 Installs, upgrades, and latest-tag fetches run up to 4 jobs in parallel (`-j 1` restores strict serial), with bounded retry + backoff on transient download/API failures (`--retries`, default 2). Output drains in submission order, so the console and exit summary read like a serial run.
 
