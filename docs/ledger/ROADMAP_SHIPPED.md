@@ -4,6 +4,7 @@
 
 ## Shipped index
 
+- [x] 2026-09-24 — `untapped remove`
 - [x] 2026-09-24 — `untapped doctor`
 - [x] 2026-09-24 — `untapped outdated`
 - [x] 2026-09-24 — Per-package version pin
@@ -17,6 +18,10 @@
 - [x] 2026-09-23 — One-time legacy ghr version-state migration
 
 ## Archived entries
+
+### 2026-09-24 — `untapped remove`
+
+1. **`untapped remove <name>`** — drop a conf line + uninstall binary/version state. Effort: S
 
 ### 2026-09-24 — `untapped doctor`
 

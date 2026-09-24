@@ -10,6 +10,7 @@
 #   install.sh list            show conf entries + install status (no network)
 #   install.sh doctor          print conf/paths/counts (no network)
 #   install.sh outdated        list installed vs latest (no install)
+#   remove.sh <name>...        drop conf line + uninstall (see lib/remove.sh)
 #   install.sh --yes           non-interactive; accept all prompts
 #   install.sh --dry-run       show what would change; install nothing
 #   install.sh -c PATH         conf file (default: ~/.config/untapped/conf;
@@ -34,6 +35,7 @@ Usage:
   untapped doctor          print conf/paths/counts (no network)
   untapped outdated        list installed vs latest (no install)
   untapped add <url|o/r>   inspect a GH release; append a conf line
+  untapped remove <name>... drop conf line + uninstall binary/state
   untapped help            show this help
 
 Options:

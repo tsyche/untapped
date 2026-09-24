@@ -21,6 +21,7 @@ teardown() {
   [[ "$output" == *"list"* ]]
   [[ "$output" == *"doctor"* ]]
   [[ "$output" == *"outdated"* ]]
+  [[ "$output" == *"remove"* ]]
   [[ "$output" == *"--dry-run"* ]]
 }
 

@@ -39,6 +39,7 @@ cd untapped
 ./bin/untapped outdated        # installed vs latest; report only
 ./bin/untapped --yes           # install anything missing
 ./bin/untapped upgrade --yes   # check for updates
+./bin/untapped remove <name>   # drop conf entry + uninstall
 ```
 
 First run with no conf:
@@ -76,6 +77,7 @@ untapped list            show conf entries + install status (no network)
 untapped doctor          print conf/paths/counts (no network)
 untapped outdated        list installed vs latest (no install)
 untapped add <url|o/r>   inspect a GH release; append a conf line
+untapped remove <name>... drop conf line + uninstall binary/state
 untapped help            show help
 
 Options:
@@ -101,6 +103,18 @@ untapped add owner/repo --yes           # write without prompt
 Generated conf entries preserve noncanonical platform spellings such as `macos` and `aarch64` with platform filters. Review the printed line before sharing it across machines.
 
 Flags: `-c PATH` (conf to append), `--name` (override package name), `--asset` (force asset filename). Refuses to write the packaged example conf. Then run `untapped` to install.
+
+### `untapped remove`
+
+Unmanages a package: drops its conf line, deletes the installed binary (plus the `.app` bundle under `~/.local/opt` when applicable), and clears its version state. Offline — no OS/arch filtering, so a filtered entry still cleans up on any host.
+
+```sh
+untapped remove usql
+untapped remove usql tart --yes     # several at once; skip prompt
+untapped remove usql --dry-run      # show what would go; touch nothing
+```
+
+Confirms first (default **No**; `--yes` skips). Conf line is rewritten before artifacts delete — through a conf symlink without replacing it — so a failed delete can't reinstall on the next run. PATH binaries untapped didn't install (e.g. brew) are reported and left alone. Refuses the packaged example conf.
 
 ## Conf format
 

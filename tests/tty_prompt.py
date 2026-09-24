@@ -28,7 +28,7 @@ try:
         if not chunk:
             break
         output.extend(chunk)
-        if not answered and b'[Y/n]' in output:
+        if not answered and (b'[Y/n]' in output or b'[y/N]' in output):
             os.write(fd, os.environ.get('PROMPT_REPLY', 'Y\n').encode())
             answered = True
     else:

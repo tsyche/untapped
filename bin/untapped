@@ -21,6 +21,11 @@ fi
 case "${1:-}" in
   help|--help|-h)
     shift || true
+    # Route engine-specific help before falling through to the install engine
+    if [[ $# -gt 0 && "$1" == "remove" ]]; then
+      shift
+      exec bash "$ROOT/lib/remove.sh" help "$@"
+    fi
     # Prefer engine usage when no subcommand remains after help
     if [[ $# -eq 0 ]]; then
       exec bash "$INSTALLER" help
@@ -35,6 +40,15 @@ case "${1:-}" in
       exit 1
     fi
     exec bash "$ADDER" "$@"
+    ;;
+  remove)
+    shift
+    REMOVER="$ROOT/lib/remove.sh"
+    if [[ ! -f "$REMOVER" ]]; then
+      echo "untapped: remove engine not found at $REMOVER" >&2
+      exit 1
+    fi
+    exec bash "$REMOVER" "$@"
     ;;
   *)
     exec bash "$INSTALLER" "$@"

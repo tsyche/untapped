@@ -4,11 +4,10 @@
 
 Conf-driven GitHub-release installer — active work only. Shipped history: [docs/ledger/ROADMAP_SHIPPED.md](docs/ledger/ROADMAP_SHIPPED.md).
 
-## Recommended next 3
+## Recommended next
 
-1. **`untapped remove <name>`** — drop a conf line + uninstall binary/version state. Effort: S
-2. **Parallel installs / retry** — faster multi-package runs; retry transient download failures. Effort: M
-3. **Non-GitHub hosts (generic HTTP assets)** — install from plain HTTPS release URLs, not only github.com. Effort: L
+1. **Parallel installs / retry** — faster multi-package runs; retry transient download failures. Effort: M
+2. **Non-GitHub hosts (generic HTTP assets)** — install from plain HTTPS release URLs, not only github.com. Effort: L
 
 ## High priority backlog
 

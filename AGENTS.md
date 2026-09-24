@@ -4,7 +4,7 @@
 
 ## Stack
 
-- Bash (`bin/untapped`, `lib/install.sh`, `lib/add.sh`)
+- Bash (`bin/untapped`, `lib/install.sh`, `lib/add.sh`, `lib/remove.sh`)
 - bats (Ubuntu + macOS); shellcheck + check-docs (Ubuntu)
 - Task runner: `just` (default recipe lists commands)
 
@@ -20,10 +20,11 @@ just sync-docs       # CLAUDE.md <-> AGENTS.md
 
 ## Key files
 
-- `bin/untapped` — CLI entry; dispatches `add` → `lib/add.sh`, else `lib/install.sh`
+- `bin/untapped` — CLI entry; dispatches `add` → `lib/add.sh`, `remove` → `lib/remove.sh`, else `lib/install.sh`
 - `lib/install.sh` — install/upgrade/list/doctor/outdated engine + conf discovery + first-run seed
 - `lib/common.sh` — shared field validation, GitHub downloads, archive inspection
 - `lib/add.sh` — GitHub URL → conf line (asset pick, binary sniff, append)
+- `lib/remove.sh` — drop conf line first, then binary/`.app` bundle/version state
 - `conf/untapped.conf.example` — packaging shapes; never used implicitly
 - `tests/` — bats; mocked curl, seeded validation cases, Python PTY helper for real prompts
 - `.github/workflows/ci.yml` — shellcheck (Ubuntu); bats (Ubuntu + macOS); check-docs (Ubuntu)
@@ -32,4 +33,5 @@ just sync-docs       # CLAUDE.md <-> AGENTS.md
 
 - First run with no conf: interactive prompt seeds from example (Enter = yes) or empty conf; `--yes` seeds example; no TTY without `--yes` seeds empty. Never auto-installs on first run.
 - Version state: `~/.local/share/untapped/installed.conf` (one-time import from legacy ghr path if present).
+- `remove` rewrites the conf (through any symlink) before deleting artifacts, so a failed delete can never resurrect on the next run; foreign PATH binaries are left alone.
 - Personal package list lives in scriptorium conf, not this repo.
