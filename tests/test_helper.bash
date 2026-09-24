@@ -75,12 +75,30 @@ fi
 
 fixtures="${MOCK_FIXTURES:?MOCK_FIXTURES not set}"
 # One append per request so concurrent (parallel-job) requests can't
-# interleave a URL line with another request's header lines.
+# interleave a URL line with another request's header lines. printf can
+# emit a multi-line block in more than one write(), so writers take a
+# mkdir lock to keep each block contiguous in curl.log.
 block="$url"
 for h in ${hdrs[@]+"${hdrs[@]}"}; do
   block+=$'\n  hdr: '"$h"
 done
-printf '%s\n' "$block" >> "$fixtures/curl.log"
+lock="$fixtures/curl.log.lock"
+locked=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  if mkdir "$lock" 2>/dev/null; then
+    locked=1
+    break
+  fi
+  sleep 0.01
+done
+if [[ "$locked" -eq 1 ]]; then
+  trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+  printf '%s\n' "$block" >> "$fixtures/curl.log"
+  rmdir "$lock" 2>/dev/null || true
+  trap - EXIT
+else
+  printf '%s\n' "$block" >> "$fixtures/curl.log"
+fi
 
 if [[ -n "${MOCK_CURL_FAIL:-}" && "$url" == *"${MOCK_CURL_FAIL}"* ]]; then
   exit 22

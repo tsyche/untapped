@@ -108,7 +108,21 @@ untapped add owner/repo --yes           # write without prompt
 
 Generated conf entries preserve noncanonical platform spellings such as `macos` and `aarch64` with platform filters. Review the printed line before sharing it across machines.
 
-Flags: `-c PATH` (conf to append), `--name` (override package name), `--asset` (force asset filename). Refuses to write the packaged example conf. Then run `untapped` to install.
+It also accepts any `https://` version-page URL (see [Non-GitHub sources](#non-github-sources)): it probes the page for a version, asks for one concrete download URL for that release (`--asset` takes it as a full URL for scripted use), derives `{VERSION}`/`{OS}`/`{ARCH}` plus platform filters, sniffs the binary inside, and appends the line. When the page can't be fetched, has no version, or stdin isn't a TTY, it prints an editable conf line instead:
+
+```sh
+untapped add https://dl.k8s.io/release/stable.txt
+untapped add --asset 'https://releases.hashicorp.com/terraform/1.16.4/terraform_1.16.4_darwin_arm64.zip' \
+  https://checkpoint-api.hashicorp.com/v1/check/terraform
+```
+
+Shorter: pass the **direct download URL** itself. One-shot flow takes the version from the URL, discovers the version source from the parent directory (stripped of the version segment), derives name/placeholders/filters from the filename, and only prompts for a version page when discovery fails:
+
+```sh
+untapped add https://releases.hashicorp.com/terraform/1.16.4/terraform_1.16.4_darwin_arm64.zip
+```
+
+Flags: `-c PATH` (conf to append), `--name` (override package name), `--asset` (GitHub: asset filename; generic source: full download URL). Refuses to write the packaged example conf. Then run `untapped` to install.
 
 ### `untapped remove`
 
@@ -156,7 +170,7 @@ A `source` that starts with `https://` makes the entry generic: `untapped` fetch
 tool | https://dl.example.com/tool/latest | https://cdn.example.com/tool/{VERSION}/tool-{VERSION}-{OS}-{ARCH}.tar.gz | tool | | | |
 ```
 
-Notes: pin with `version_pin` to skip discovery entirely; if the page has decoy numbers, tighten `version_rule` (e.g. `[0-9]+\.[0-9]+\.[0-9]+`); checksum verification is skipped (no convention outside GitHub); `untapped add` still only understands GitHub — generic lines are hand-written in the conf. `GITHUB_TOKEN` is never sent to non-GitHub hosts.
+Notes: pin with `version_pin` to skip discovery entirely; if the page has decoy numbers, tighten `version_rule` (e.g. `[0-9]+\.[0-9]+\.[0-9]+`); checksum verification is skipped (no convention outside GitHub); `untapped add` handles these too — version-page URLs or direct download URLs (see [`untapped add`](#untapped-add)). `GITHUB_TOKEN` is never sent to non-GitHub hosts.
 
 ### Examples
 
