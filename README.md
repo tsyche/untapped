@@ -153,14 +153,13 @@ For tools with no maintained formula/cask — or a tap that lags upstream releas
 ## Development
 
 ```sh
-# lint
-shellcheck -x lib/install.sh bin/untapped tests/test_helper.bash
-
-# tests
-bats tests/*.bats
+just setup   # verify shellcheck + bats
+just test    # bats tests/*.bats
+just lint    # shellcheck -x lib/install.sh lib/add.sh bin/untapped tests/test_helper.bash
+just check-docs
 ```
 
-CI runs shellcheck + bats on `ubuntu-24.04` and `macos-latest` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+CI runs shellcheck + bats + check-docs on `ubuntu-24.04` and `macos-latest` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 Tests mock `curl` with fixtures; no network required.
 

@@ -3,9 +3,24 @@ on:
   push:
     branches: [main]
   pull_request:
+    paths:
+      - '**.md'
+      - 'justfile'
+      - 'scripts/check-docs.sh'
+      - '.github/workflows/ci.yml'
+      - 'lib/**'
+      - 'bin/**'
+      - 'tests/**'
 permissions:
   contents: read
 jobs:
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: extractions/setup-just@v2
+      - name: check-docs
+        run: just check-docs
   shellcheck:
     runs-on: ubuntu-24.04
     steps:
@@ -14,7 +29,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck -x lib/install.sh bin/untapped tests/test_helper.bash
+          shellcheck -x lib/install.sh lib/add.sh bin/untapped tests/test_helper.bash
   test:
     strategy:
       fail-fast: false
@@ -33,3 +48,4 @@ jobs:
           bats --version
       - name: Run tests
         run: bats tests/*.bats
+
