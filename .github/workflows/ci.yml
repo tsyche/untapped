@@ -30,7 +30,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck -x lib/install.sh lib/add.sh bin/untapped tests/test_helper.bash
+          shellcheck -x lib/*.sh bin/untapped scripts/*.sh tests/test_helper.bash tests/*.bats
   test:
     strategy:
       fail-fast: false

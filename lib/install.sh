@@ -16,6 +16,8 @@ set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$LIB_DIR/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
 DEFAULT_USER_CONF="$HOME/.config/untapped/conf"
 EXAMPLE_CONF="$ROOT/conf/untapped.conf.example"
 
@@ -165,27 +167,18 @@ if [[ ! -s "$VERSION_FILE" && -f "$LEGACY_VERSION_FILE" ]]; then
 fi
 touch "$VERSION_FILE"
 
-github_curl() {
-  local url="$1"
-  shift
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "$@" "$url"
-  else
-    curl -fsSL "$@" "$url"
-  fi
-}
-
 get_installed_version() {
   local name="$1"
-  grep "^${name}=" "$VERSION_FILE" 2>/dev/null | cut -d= -f2 || echo ""
+  awk -F= -v n="$name" '$1 == n {sub(/^[^=]*=/, ""); print; exit}' "$VERSION_FILE"
 }
 
 # --- list: local inventory only (conf + PATH + version state; no network) ---
 if $LIST; then
   printf '%-24s %s\n' "PACKAGE" "STATUS"
   while IFS='|' read -r name repo pattern binary os_filter arch_filter || [[ -n "$name" ]]; do
+    name="${name//[[:space:]]/}"
     [[ -z "$name" || "$name" == \#* ]] && continue
-    name="${name// /}"
+    valid_name "$name" || { echo "untapped: invalid package name: $name" >&2; exit 1; }
     os_filter="${os_filter// /}"
     arch_filter="${arch_filter// /}"
 
@@ -206,14 +199,13 @@ fi
 
 set_installed_version() {
   local name="$1" version="$2"
-  if grep -q "^${name}=" "$VERSION_FILE" 2>/dev/null; then
-    if [[ "$OS" == "darwin" ]]; then
-      sed -i '' "s/^${name}=.*/${name}=${version}/" "$VERSION_FILE"
-    else
-      sed -i "s/^${name}=.*/${name}=${version}/" "$VERSION_FILE"
-    fi
-  else
-    echo "${name}=${version}" >> "$VERSION_FILE"
+  local state_tmp
+  state_tmp=$(mktemp "$VERSION_DIR/.installed.XXXXXX") || return 1
+  if ! awk -F= -v n="$name" '$1 != n' "$VERSION_FILE" > "$state_tmp" \
+    || ! printf '%s=%s\n' "$name" "$version" >> "$state_tmp" \
+    || ! mv -f "$state_tmp" "$VERSION_FILE"; then
+    rm -f "$state_tmp"
+    return 1
   fi
 }
 
@@ -248,7 +240,7 @@ verify_checksum() {
   local cand expected=""
   for cand in "${candidates[@]}"; do
     if github_curl "https://github.com/$repo/releases/download/${tag}/${cand}" -o "$workdir/checksums.txt" 2>/dev/null; then
-      expected=$(awk -v f="$asset" '$2==f {print $1; exit}' "$workdir/checksums.txt")
+      expected=$(awk -v f="$asset" '{n=$2; sub(/^\*/, "", n); if(n==f) {print $1; exit}}' "$workdir/checksums.txt")
       [[ -n "$expected" ]] && break
     fi
   done
@@ -270,65 +262,103 @@ verify_checksum() {
   echo "  checksum verified for $name"
 }
 
-install_binary() {
+install_binary() (
+  # A subshell gives each package its own cleanup trap. Every fallible operation
+  # is checked explicitly: callers use this function in an `if`, disabling -e.
   local name="$1" repo="$2" pattern="$3" binary="$4" tag="$5" version="$6"
-
   local asset="${pattern//\{VERSION\}/$version}"
   asset="${asset//\{OS\}/$OS}"
   asset="${asset//\{ARCH\}/$ARCH}"
+  binary="${binary//\{VERSION\}/$version}"
+  if ! valid_asset "$asset" || ! safe_relative_path "$binary"; then
+    echo "FAILED: $name (invalid asset or binary path)"
+    return 1
+  fi
   local url="https://github.com/$repo/releases/download/${tag}/${asset}"
-
-  local tmpdir
-  tmpdir=$(mktemp -d)
-  # shellcheck disable=SC2064
-  trap "rm -rf '$tmpdir'" RETURN
-
+  local tmpdir staged="" listing found bundle_name found_bundle bundle_root backup=""
+  tmpdir=$(mktemp -d) || return 1
+  tmpdir=$(cd "$tmpdir" && pwd -P) || return 1
+  trap 'rm -rf "$tmpdir"; if [[ -n "$staged" ]]; then rm -f "$staged"; fi' EXIT
   if ! github_curl "$url" -o "$tmpdir/$asset"; then
     echo "FAILED: $name (download failed: $url)"
     return 1
   fi
-
-  if ! verify_checksum "$name" "$repo" "$tag" "$version" "$asset" "$tmpdir/$asset" "$tmpdir"; then
+  verify_checksum "$name" "$repo" "$tag" "$version" "$asset" "$tmpdir/$asset" "$tmpdir" || return 1
+  mkdir "$tmpdir/unpacked" || return 1
+  if ! listing=$(list_archive "$tmpdir/$asset") || ! validate_listing "$listing"; then
+    echo "FAILED: $name (unsafe archive or unreadable asset)"
     return 1
   fi
-
   case "$asset" in
-    *.tar.gz|*.tgz)  tar -xzf "$tmpdir/$asset" -C "$tmpdir" ;;
-    *.tar.bz2|*.tbz) tar -xjf "$tmpdir/$asset" -C "$tmpdir" ;;
-    *.zip)           unzip -q "$tmpdir/$asset" -d "$tmpdir" ;;
-    *)               cp "$tmpdir/$asset" "$tmpdir/$binary" ;;
+    *.tar.gz|*.tgz) tar -xzf "$tmpdir/$asset" -C "$tmpdir/unpacked" || return 1 ;;
+    *.tar.bz2|*.tbz) tar -xjf "$tmpdir/$asset" -C "$tmpdir/unpacked" || return 1 ;;
+    *.tar.xz|*.txz) tar -xJf "$tmpdir/$asset" -C "$tmpdir/unpacked" || return 1 ;;
+    *.tar) tar -xf "$tmpdir/$asset" -C "$tmpdir/unpacked" || return 1 ;;
+    *.zip) unzip -q "$tmpdir/$asset" -d "$tmpdir/unpacked" || return 1 ;;
+    *)
+      mkdir -p "$tmpdir/unpacked/$(dirname "$binary")" || return 1
+      cp "$tmpdir/$asset" "$tmpdir/unpacked/$binary" || return 1 ;;
   esac
-
-  # macOS .app bundles: entitlement-gated tools (Virtualization/Hypervisor,
-  # etc.) get SIGKILLed if you flatten the binary out — the entitlement
-  # check is tied to the bundle, not the raw Mach-O. Preserve the bundle.
-  if [[ "$binary" == *.app/Contents/MacOS/* ]]; then
-    local bundle_name="${binary%%.app/*}.app"
-    local found_bundle
-    found_bundle=$(find "$tmpdir" -name "$bundle_name" -type d -not -path "*/__MACOSX/*" | head -1)
-    if [[ -z "$found_bundle" ]]; then
-      echo "FAILED: $name (bundle '$bundle_name' not found in archive)"
-      return 1
-    fi
-    local bundle_root="$HOME/.local/opt/$name"
-    rm -rf "$bundle_root"
-    mkdir -p "$bundle_root"
-    cp -R "$found_bundle" "$bundle_root/"
-    ln -sfn "$bundle_root/$bundle_name/${binary#*.app/}" "$INSTALL_DIR/$name"
-  else
-    local found
-    found=$(find "$tmpdir" -name "$binary" -not -path "*/__MACOSX/*" -type f | head -1)
-    if [[ -z "$found" ]]; then
-      echo "FAILED: $name (binary '$binary' not found in archive)"
-      return 1
-    fi
-    cp "$found" "$INSTALL_DIR/$name"
+  if ! validate_extraction "$tmpdir/unpacked"; then
+    echo "FAILED: $name (unsafe archive links or special files)"
+    return 1
   fi
-
-  chmod +x "$INSTALL_DIR/$name"
-  set_installed_version "$name" "$version"
+  if [[ "$binary" == */* ]]; then
+    found="$tmpdir/unpacked/$binary"
+  else
+    found=$(find "$tmpdir/unpacked" -name "$binary" -not -path '*/__MACOSX/*' -type f | head -1)
+  fi
+  if [[ ! -f "$found" || -L "$found" ]]; then
+    echo "FAILED: $name (binary '$binary' not found in archive)"
+    return 1
+  fi
+  if [[ -d "$INSTALL_DIR/$name" ]]; then
+    echo "FAILED: $name (destination is a directory)"
+    return 1
+  fi
+  staged=$(mktemp "$INSTALL_DIR/.untapped.XXXXXX") || return 1
+  if [[ "$binary" == *.app/Contents/MacOS/* ]]; then
+    found_bundle="${found%%.app/*}.app"
+    bundle_name="${found_bundle##*/}"
+    bundle_root="$HOME/.local/opt/$name"
+    mkdir -p "$HOME/.local/opt" || return 1
+    local new_bundle
+    new_bundle=$(mktemp -d "$HOME/.local/opt/.untapped.XXXXXX") || return 1
+    if ! cp -R "$found_bundle" "$new_bundle/" \
+      || ! validate_extraction "$new_bundle" \
+      || ! chmod +x "$new_bundle/$bundle_name/${binary#*.app/}" \
+      || ! rm -f "$staged" \
+      || ! ln -s "$bundle_root/$bundle_name/${binary#*.app/}" "$staged"; then
+      rm -rf "$new_bundle"
+      return 1
+    fi
+    if [[ -e "$bundle_root" || -L "$bundle_root" ]]; then
+      backup=$(mktemp -d "$HOME/.local/opt/.backup.XXXXXX") || { rm -rf "$new_bundle"; return 1; }
+      if ! mv "$bundle_root" "$backup/bundle"; then
+        rm -rf "$new_bundle" "$backup"
+        return 1
+      fi
+    fi
+    if ! mv "$new_bundle" "$bundle_root"; then
+      [[ -z "$backup" ]] || mv "$backup/bundle" "$bundle_root"
+      rm -rf "$new_bundle"
+      return 1
+    fi
+  else
+    cp "$found" "$staged" && chmod +x "$staged" || return 1
+  fi
+  if ! mv -f "$staged" "$INSTALL_DIR/$name"; then
+    if [[ "$binary" == *.app/Contents/MacOS/* ]]; then
+      rm -rf "$bundle_root"
+      [[ -z "$backup" ]] || mv "$backup/bundle" "$bundle_root"
+    fi
+    return 1
+  fi
+  [[ -z "$backup" ]] || rm -rf "$backup"
+  staged=""
+  set_installed_version "$name" "$version" || return 1
   echo "$name $version -> $INSTALL_DIR/$name"
-}
+)
 
 prompt_yes() {
   # default_yes: "Y/n" vs "y/N"
@@ -341,11 +371,11 @@ prompt_yes() {
     exit 1
   fi
   if $default_yes; then
-    read -r -p "$prompt [Y/n] " reply
-    [[ -z "$reply" || "${reply,,}" == "y" ]]
+    read -r -p "$prompt [Y/n] " reply || return 1
+    [[ -z "$reply" || "$reply" == [yY] ]]
   else
-    read -r -p "$prompt [y/N] " reply
-    [[ "${reply,,}" == "y" ]]
+    read -r -p "$prompt [y/N] " reply || return 1
+    [[ "$reply" == [yY] ]]
   fi
 }
 
@@ -362,13 +392,18 @@ would_install=()
 would_upgrade=()
 
 while IFS='|' read -r name repo pattern binary os_filter arch_filter || [[ -n "$name" ]]; do
+  name="${name//[[:space:]]/}"
   [[ -z "$name" || "$name" == \#* ]] && continue
-  name="${name// /}"
   repo="${repo// /}"
   pattern="${pattern// /}"
   binary="${binary// /}"
   os_filter="${os_filter// /}"
   arch_filter="${arch_filter// /}"
+
+  if ! validate_entry "$name" "$repo" "$pattern" "$binary" "$os_filter" "$arch_filter"; then
+    failed+=("$name|invalid conf entry")
+    continue
+  fi
 
   if [[ -n "$os_filter" && "$os_filter" != "$OS" ]]; then
     skipped+=("$name|not available on $OS")

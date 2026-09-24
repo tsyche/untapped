@@ -84,36 +84,17 @@ teardown() {
   tar -czf "$TEST_TMP/democtl-linux-amd64.tar.gz" -C "$stage" democtl
   rm -rf "$stage"
 
-  other_os="linux"
-  [[ "$(uname -s)" == "Linux" ]] && other_os="darwin"
-
-  write_api_release ex demorepo v1.0.0 \
-    "democtl-1.0.0-${other_os}-x64.tar.gz" \
-    "democtl-1.0.0-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/darwin/')-$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/').tar.gz"
-
-  # Simpler: host-named asset + other-OS asset
-  host_os="darwin"
-  [[ "$(uname -s)" == "Linux" ]] && host_os="linux"
-  host_arch="arm64"
-  [[ "$(uname -m)" == "x86_64" ]] && host_arch="amd64"
-
+  host_os=darwin
+  [[ "$(uname -s)" == Linux ]] && host_os=linux
+  other_os=linux
+  [[ "$host_os" == linux ]] && other_os=darwin
+  host_arch=arm64
+  [[ "$(uname -m)" == x86_64 ]] && host_arch=amd64
   write_api_release ex demorepo v1.0.0 \
     "democtl-1.0.0-${host_os}-${host_arch}.tar.gz" \
     "democtl-1.0.0-${other_os}-amd64.tar.gz"
-
-  write_asset "democtl-1.0.0-${host_os}-${host_arch}.tar.gz" "$TEST_TMP/democtl-${host_os}-${host_arch}.tar.gz"
-  write_asset "democtl-1.0.0-${other_os}-amd64.tar.gz" "$TEST_TMP/democtl-${other_os}-amd64.tar.gz"
-
-  # ensure host tarball exists (created above under host name)
-  if [[ ! -f "$TEST_TMP/democtl-${host_os}-${host_arch}.tar.gz" ]]; then
-    cp "$TEST_TMP/democtl-darwin-arm64.tar.gz" "$TEST_TMP/democtl-${host_os}-${host_arch}.tar.gz" 2>/dev/null || {
-      stage="$(mktemp -d)"
-      printf '#!/bin/sh\necho demo\n' > "$stage/democtl"
-      chmod +x "$stage/democtl"
-      tar -czf "$TEST_TMP/democtl-${host_os}-${host_arch}.tar.gz" -C "$stage" democtl
-      rm -rf "$stage"
-    }
-  fi
+  write_asset "democtl-1.0.0-${host_os}-${host_arch}.tar.gz" "$TEST_TMP/democtl-darwin-arm64.tar.gz"
+  write_asset "democtl-1.0.0-${other_os}-amd64.tar.gz" "$TEST_TMP/democtl-darwin-arm64.tar.gz"
 
   conf="$TEST_TMP/conf"
   : > "$conf"
@@ -134,7 +115,7 @@ echo bare"
 
   run run_untapped add --yes -c "$conf" https://github.com/ex/barebin/releases
   [ "$status" -eq 0 ]
-  grep -q '| barebin-2.0.0 | barebin-2.0.0 |' "$conf" || grep -q 'barebin-2.0.0 |' "$conf"
+  grep -Fq '| barebin-{VERSION} | barebin-{VERSION} |' "$conf"
   grep -q 'barebin | ex/barebin |' "$conf"
 }
 

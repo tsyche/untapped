@@ -1,6 +1,6 @@
 # untapped
 
-Conf-driven installer for CLI binaries (and `.app` bundles) straight from GitHub releases. Zero runtime deps beyond `curl` and standard archive tools.
+**TL;DR:** Conf-driven installer for CLI binaries (and `.app` bundles) straight from GitHub releases. Zero runtime deps beyond `curl` and standard archive tools.
 
 ## Stack
 
@@ -11,9 +11,9 @@ Conf-driven installer for CLI binaries (and `.app` bundles) straight from GitHub
 ## Key commands
 
 ```sh
-just setup           # verify shellcheck + bats
+just setup           # verify shellcheck + bats + Python 3
 just test            # bats tests/*.bats
-just lint            # shellcheck -x lib/install.sh lib/add.sh bin/untapped tests/test_helper.bash
+just lint            # shellcheck on all shell code and Bats tests
 just check-docs      # mechanical doc checks (scripts/check-docs.sh)
 just sync-docs       # CLAUDE.md <-> AGENTS.md
 ```
@@ -22,9 +22,10 @@ just sync-docs       # CLAUDE.md <-> AGENTS.md
 
 - `bin/untapped` — CLI entry; dispatches `add` → `lib/add.sh`, else `lib/install.sh`
 - `lib/install.sh` — install/upgrade/list engine + conf discovery + first-run seed
+- `lib/common.sh` — shared field validation, GitHub downloads, archive inspection
 - `lib/add.sh` — GitHub URL → conf line (asset pick, binary sniff, append)
 - `conf/untapped.conf.example` — packaging shapes; never used implicitly
-- `tests/` — bats; `curl` mocked via `tests/test_helper.bash`
+- `tests/` — bats; mocked curl, seeded validation cases, Python PTY helper for real prompts
 - `.github/workflows/ci.yml` — shellcheck (Ubuntu); bats (Ubuntu + macOS); check-docs (Ubuntu)
 
 ## Notes

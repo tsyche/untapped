@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 # CLI surface, conf discovery, filters, dry-run summary.
+# Each Bats test deliberately has an isolated PATH.
+# shellcheck disable=SC2030,SC2031
 
 load test_helper
 
@@ -43,8 +45,10 @@ teardown() {
 }
 
 @test "list marks OS-filter mismatches without installing" {
+  other_os=linux
+  [[ "$(uname -s)" == Linux ]] && other_os=darwin
   write_conf "$TEST_TMP/conf" \
-    "onlylinux | ex/onlylinux | x-{VERSION}.tar.gz | onlylinux | linux |"
+    "onlylinux | ex/onlylinux | x-{VERSION}.tar.gz | onlylinux | $other_os |"
   run run_untapped list -c "$TEST_TMP/conf"
   [ "$status" -eq 0 ]
   [[ "$output" == *"onlylinux"*"not available on"* ]]

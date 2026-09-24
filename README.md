@@ -1,6 +1,8 @@
 # untapped
 
-Install CLI binaries straight from GitHub releases when brew doesn't bottle them (or even if they are — anything with a release is fair game).
+[![CI](https://github.com/tsyche/untapped/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tsyche/untapped/actions/workflows/ci.yml?query=branch%3Amain)
+
+**TL;DR:** Install CLI binaries and macOS app bundles from GitHub releases using a plain-text package list. Add a repository, then install or upgrade its release assets.
 
 Zero runtime deps beyond `curl` and standard archive tools. Conf-driven: add a line, no script changes.
 
@@ -93,6 +95,8 @@ untapped add openai/tart --asset tart.tar.gz
 untapped add owner/repo --yes           # write without prompt
 ```
 
+Generated conf entries preserve noncanonical platform spellings such as `macos` and `aarch64` with platform filters. Review the printed line before sharing it across machines.
+
 Flags: `-c PATH` (conf to append), `--name` (override package name), `--asset` (force asset filename). Refuses to write the packaged example conf. Then run `untapped` to install.
 
 ## Conf format
@@ -103,10 +107,10 @@ name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter
 
 | Column | Required | Notes |
 |--------|----------|-------|
-| `name` | yes | binary name on PATH |
+| `name` | yes | binary name on PATH; starts with a letter/digit, then letters, digits, `.`, `_`, `+`, or `-` |
 | `github_repo` | yes | `owner/repo` |
 | `asset_pattern` | yes | may use `{VERSION}` `{OS}` `{ARCH}` |
-| `binary_in_archive` | yes | path inside archive; `*.app/Contents/MacOS/*` keeps the whole bundle |
+| `binary_in_archive` | yes | relative path inside archive; supports `{VERSION}`; `*.app/Contents/MacOS/*` keeps the whole bundle |
 | `os_filter` | no | `darwin` or `linux` |
 | `arch_filter` | no | `arm64` or `amd64` |
 
@@ -129,7 +133,9 @@ Four common packaging shapes live in [`conf/untapped.conf.example`](conf/untappe
 | Fixed asset name, macOS-only | `softnet \| openai/softnet \| softnet.tar.gz \| softnet \| darwin \|` |
 | Bare AppImage, Linux amd64 | `shotcut \| mltframework/shotcut \| shotcut-linux-x86_64-{VERSION}.AppImage \| shotcut \| linux \| amd64` |
 
-`#` starts a comment. Blank lines ignored.
+Lines starting with `#` (after optional whitespace) are comments. Blank lines are ignored.
+
+Supported assets: `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`, `.tar.xz`/`.txz`, `.tar`, `.zip`, and bare binaries. Absolute paths, parent traversal, and links escaping extraction are rejected. Only install releases from publishers you trust; checksums are best-effort and do not authenticate a publisher.
 
 ## Exit summary
 

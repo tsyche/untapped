@@ -6,6 +6,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNTTAPPED_BIN="$REPO_ROOT/bin/untapped"
 
 setup_test_env() {
+  TEST_PYTHON="$(command -v python3)"
+  export TEST_PYTHON
   TEST_TMP="$(mktemp -d)"
   export HOME="$TEST_TMP/home"
   export UNTAPPED_BIN_DIR="$TEST_TMP/bin"
@@ -26,11 +28,11 @@ teardown_test_env() {
   rm -rf "$TEST_TMP"
 }
 
-# Mock curl: routes by URL shape using $MOCK_ROUTES env (dir of sidecar files).
+# Mock curl: routes by URL shape using $MOCK_FIXTURES.
 # Layout expected under $FIXTURES:
 #   api/<owner>_<repo>.json          → API releases/latest body
 #   assets/<escaped-or-slug>         → raw body written when -o used
-# Optional: $FIXTURES/curl_fail_urls  → newline substrings; matching URLs fail
+# Optional: $MOCK_CURL_FAIL → a URL substring whose matching requests fail
 install_mock_curl() {
   cat > "$MOCK_BIN/curl" <<'MOCK'
 #!/usr/bin/env bash

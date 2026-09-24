@@ -9,6 +9,8 @@ set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$LIB_DIR/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
 DEFAULT_USER_CONF="$HOME/.config/untapped/conf"
 
 usage() {
@@ -91,27 +93,21 @@ if [[ -z "$INPUT" ]]; then
   exit 1
 fi
 
-github_curl() {
-  local url="$1"
-  shift
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "$@" "$url"
-  else
-    curl -fsSL "$@" "$url"
-  fi
-}
-
 # Accepts full GitHub URL or bare owner/repo.
 parse_repo() {
   local u="$1"
-  u="${u#https://}"
-  u="${u#http://}"
-  u="${u#github.com/}"
-  u="${u#www.github.com/}"
-  u="${u%%/releases*}"
-  u="${u%%/tag/*}"
+  case "$u" in
+    https://github.com/*|http://github.com/*|https://www.github.com/*|http://www.github.com/*)
+      u="${u#*://}"; u="${u#*/}" ;;
+    *://*) return 1 ;;
+  esac
   u="${u%/}"
-  if [[ "$u" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+  if [[ "$u" =~ ^([^/]+/[^/]+)(/(releases|tag)(/.*)?)?$ ]]; then
+    u="${BASH_REMATCH[1]}"
+  else
+    return 1
+  fi
+  if valid_repo "$u"; then
     printf '%s\n' "$u"
     return 0
   fi
@@ -146,12 +142,22 @@ if ! REPO="$(parse_repo "$INPUT")"; then
   exit 1
 fi
 
+PKG_NAME="${NAME_OVERRIDE:-${REPO#*/}}"
+if ! valid_name "$PKG_NAME"; then
+  echo "untapped add: invalid package name: $PKG_NAME" >&2
+  exit 1
+fi
+
 release_json="$(github_curl "https://api.github.com/repos/$REPO/releases/latest")" || {
   echo "untapped add: could not fetch latest release for $REPO" >&2
   exit 1
 }
 
-TAG="$(printf '%s' "$release_json" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*: *"//;s/"//')"
+TAG="$(printf '%s' "$release_json" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*: *"//;s/"//' || true)"
+if [[ -z "$TAG" ]]; then
+  echo "untapped add: could not read release tag for $REPO" >&2
+  exit 1
+fi
 VERSION="${TAG#v}"
 
 ASSETS=()
@@ -175,6 +181,7 @@ os_of_name() {
   case "$n" in
     *darwin*|*macos*|*osx*|*apple*) echo darwin ;;
     *linux*) echo linux ;;
+    *windows*|*win32*|*win64*|*mingw*) echo windows ;;
     *) echo "" ;;
   esac
 }
@@ -183,7 +190,9 @@ arch_of_name() {
   local n="$1"
   case "$n" in
     *arm64*|*aarch64*) echo arm64 ;;
-    *amd64*|*x86_64*) echo amd64 ;;
+    *amd64*|*x86_64*|*x64*) echo amd64 ;;
+    *i386*|*i686*) echo x86 ;;
+    *armv7*|*armhf*) echo arm ;;
     *) echo "" ;;
   esac
 }
@@ -299,8 +308,8 @@ for u in "${ASSETS[@]}"; do
 done
 
 tmpdir="$(mktemp -d)"
-# shellcheck disable=SC2064
-trap "rm -rf '$tmpdir'" EXIT
+trap 'rm -rf "$tmpdir"' EXIT
+valid_asset "$CHOSEN_NAME" || { echo 'untapped add: invalid asset filename' >&2; exit 1; }
 asset_path="$tmpdir/$CHOSEN_NAME"
 
 if ! github_curl "$CHOSEN_URL" -o "$asset_path"; then
@@ -308,41 +317,25 @@ if ! github_curl "$CHOSEN_URL" -o "$asset_path"; then
   exit 1
 fi
 
-list_archive() {
-  local file="$1"
-  case "$file" in
-    *.tar.gz|*.tgz)  tar -tzf "$file" 2>/dev/null || true ;;
-    *.tar.bz2|*.tbz) tar -tjf "$file" 2>/dev/null || true ;;
-    *.tar.xz|*.txz)  tar -tJf "$file" 2>/dev/null || true ;;
-    *.tar)           tar -tf  "$file" 2>/dev/null || true ;;
-    *.zip)
-      if command -v unzip >/dev/null 2>&1; then
-        unzip -Z1 "$file" 2>/dev/null \
-          || unzip -l "$file" 2>/dev/null | awk 'NR>3 && $NF!="----" && $NF!="Name" && $NF!="--------" {print $NF}'
-      fi
-      ;;
-    *)
-      printf '%s\n' "$(basename "$file")"
-      ;;
-  esac
-}
-
 pick_binary() {
   local pkg="$1"
   local listing="$2"
   local line
 
-  line="$(printf '%s\n' "$listing" | grep -E '\.app/Contents/MacOS/' | grep -E "/${pkg}(/|$)" | head -1 || true)"
-  if [[ -z "$line" ]]; then
-    line="$(printf '%s\n' "$listing" | grep -E '\.app/Contents/MacOS/' | head -1 || true)"
-  fi
+  line="$(printf '%s\n' "$listing" | awk -v p="$pkg" '
+    /\.app\/Contents\/MacOS\/[^\/]+$/ {
+      if (!first) first=$0
+      base=$0; sub(/^.*\//, "", base)
+      if (base == p) {chosen=$0; exit}
+    }
+    END {if (chosen) print chosen; else if (first) print first}')"
   if [[ -n "$line" ]]; then
     printf '%s\n' "$line"
     return 0
   fi
 
   line="$(printf '%s\n' "$listing" | awk -v p="$pkg" '
-    {
+    $0 !~ /\/$/ {
       n=$0
       sub(/\/$/, "", n)
       base=n
@@ -367,12 +360,10 @@ pick_binary() {
   return 1
 }
 
-PKG_NAME="${REPO#*/}"
-if [[ -n "$NAME_OVERRIDE" ]]; then
-  PKG_NAME="$NAME_OVERRIDE"
+if ! listing="$(list_archive "$asset_path")" || ! validate_listing "$listing"; then
+  echo "untapped add: unsafe archive or unreadable asset" >&2
+  exit 1
 fi
-
-listing="$(list_archive "$asset_path")"
 if [[ -z "$listing" ]]; then
   echo "untapped add: could not read archive: $CHOSEN_NAME" >&2
   exit 1
@@ -387,63 +378,34 @@ if ! BINARY_IN_ARCHIVE="$(pick_binary "$PKG_NAME" "$listing")"; then
 fi
 
 pattern="$CHOSEN_NAME"
-if [[ -n "$VERSION" && "$pattern" == *"$VERSION"* ]]; then
+if [[ -n "$VERSION" ]]; then
   ph='{VERSION}'
   pattern="${pattern//"$VERSION"/$ph}"
+  BINARY_IN_ARCHIVE="${BINARY_IN_ARCHIVE//"$VERSION"/$ph}"
 fi
 
-os_filter=""
-arch_filter=""
-
-if $has_other_os; then
-  ph_os='{OS}'
-  pattern="${pattern//darwin/$ph_os}"
-  pattern="${pattern//macos/$ph_os}"
-  pattern="${pattern//osx/$ph_os}"
-  pattern="${pattern//linux/$ph_os}"
-else
-  inferred_os="$(os_of_name "$CHOSEN_NAME")"
-  if [[ -z "$inferred_os" ]]; then
-    only_os=""
-    for u in "${ASSETS[@]}"; do
-      aos="$(os_of_name "$(asset_name_from_url "$u")")"
-      [[ -z "$aos" ]] && continue
-      if [[ -z "$only_os" ]]; then
-        only_os="$aos"
-      elif [[ "$only_os" != "$aos" ]]; then
-        only_os=""
-        break
-      fi
-    done
-    inferred_os="$only_os"
-  fi
-  os_filter="$inferred_os"
-fi
-
-if $has_other_arch; then
-  ph_arch='{ARCH}'
-  pattern="${pattern//arm64/$ph_arch}"
-  pattern="${pattern//aarch64/$ph_arch}"
-  pattern="${pattern//amd64/$ph_arch}"
-  pattern="${pattern//x86_64/$ph_arch}"
-else
-  arch_filter="$(arch_of_name "$CHOSEN_NAME")"
-fi
-
-if [[ "$pattern" == *"{ARCH}"* ]]; then
-  arch_filter=""
-fi
-if [[ "$pattern" == *"{OS}"* ]]; then
+os_filter="$(os_of_name "$CHOSEN_NAME")"
+arch_filter="$(arch_of_name "$CHOSEN_NAME")"
+# Only substitute spellings the installer actually emits. Alias spellings
+# remain literal and host-filtered (macos/aarch64, Rust target triples, etc.).
+if $has_other_os && [[ "$CHOSEN_NAME" == *darwin* || "$CHOSEN_NAME" == *linux* ]]; then
+  ph='{OS}'
+  pattern="${pattern//"$OS"/$ph}"
   os_filter=""
 fi
-
-# Strip leftover arch token from pattern when pinning via filter.
-if [[ -n "$arch_filter" && "$pattern" == *"$arch_filter"* && "$has_other_arch" == false ]]; then
-  # Keep the literal token in the pattern — matches the exact filename.
-  :
+if $has_other_arch && [[ "$CHOSEN_NAME" == *"$ARCH"* ]]; then
+  ph='{ARCH}'
+  pattern="${pattern//"$ARCH"/$ph}"
+  arch_filter=""
 fi
 
-if [[ -f "$CONF" ]] && grep -qE "^[[:space:]]*${PKG_NAME}[[:space:]]*\|" "$CONF"; then
+if ! validate_entry "$PKG_NAME" "$REPO" "$pattern" "$BINARY_IN_ARCHIVE" "$os_filter" "$arch_filter"; then
+  echo 'untapped add: invalid generated conf entry' >&2
+  exit 1
+fi
+if [[ -f "$CONF" ]] && awk -F'|' -v n="$PKG_NAME" '
+  {gsub(/[[:space:]]/, "", $1); if ($1 == n) found=1}
+  END {exit !found}' "$CONF"; then
   echo "untapped add: already in conf: $PKG_NAME ($CONF)" >&2
   exit 1
 fi
@@ -466,7 +428,7 @@ if $DRY_RUN; then
   exit 0
 fi
 
-if [[ "$CONF" == "$ROOT/conf/untapped.conf.example" ]]; then
+if [[ "$CONF" -ef "$ROOT/conf/untapped.conf.example" ]]; then
   echo "untapped add: refusing to write the packaged example conf" >&2
   echo "Copy it to $DEFAULT_USER_CONF first, or pass -c PATH" >&2
   exit 1
@@ -478,7 +440,7 @@ if ! $YES; then
     exit 1
   fi
   read -r -p "Append this line to conf? [Y/n] " reply
-  if [[ -n "$reply" && "${reply,,}" != "y" ]]; then
+  if [[ -n "$reply" && "$reply" != [yY] ]]; then
     echo "aborted; conf not modified"
     exit 1
   fi

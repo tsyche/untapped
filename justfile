@@ -8,16 +8,17 @@ default:
 setup:
     @command -v shellcheck >/dev/null || { echo "shellcheck missing — brew install shellcheck"; exit 1; }
     @command -v bats >/dev/null || { echo "bats missing — brew install bats-core"; exit 1; }
+    @command -v python3 >/dev/null || { echo "python3 missing (terminal prompt tests)"; exit 1; }
     @echo "tools ok"
 
 # Run the bats suite (curl mocked; no network)
 test:
     bats tests/*.bats
 
-# Lint shell entrypoints and shared test helper
+# Lint all shell code and Bats tests
 lint:
     @command -v shellcheck >/dev/null || { echo "shellcheck not installed — brew install shellcheck"; exit 1; }
-    shellcheck -x lib/install.sh lib/add.sh bin/untapped tests/test_helper.bash
+    shellcheck -x lib/*.sh bin/untapped scripts/*.sh tests/test_helper.bash tests/*.bats
 
 # shellcheck has no autofix — kept for init-repo parity
 lintfix: lint

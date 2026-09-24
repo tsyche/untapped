@@ -1,18 +1,17 @@
 # untapped roadmap
 
+**TL;DR:** Active installer work, with `doctor`, `outdated`, and version pinning recommended next. Completed work lives in the shipped ledger.
+
 Conf-driven GitHub-release installer — active work only. Shipped history: [docs/ledger/ROADMAP_SHIPPED.md](docs/ledger/ROADMAP_SHIPPED.md).
 
 ## Recommended next 3
 
-1. **`untapped list`** — show every conf entry + installed/not on PATH; quick inventory win. Effort: S
-2. **Fix `-c` help default** — `lib/install.sh` usage still says "else packaged example"; code never uses the example implicitly (README is correct). Effort: S
-3. **CI path filters: include `conf/**`** — example-conf edits don't currently trigger CI. Effort: S
+1. **`untapped doctor`** — print conf path, bin/share dirs, package counts, OS/arch. Effort: S
+2. **`untapped outdated`** — list installed vs latest without installing (dry-run upgrade view). Effort: M
+3. **Per-package version pin** — optional conf field/tag pin so `{VERSION}` isn't always latest. Effort: M
 
 ## High priority backlog
 
-- [ ] `untapped doctor` — print conf path, bin/share dirs, package counts, OS/arch. Effort: S
-- [ ] `untapped outdated` — list installed vs latest without installing (dry-run upgrade view). Effort: M
-- [ ] Per-package version pin — optional conf field/tag pin so `{VERSION}` isn't always latest. Effort: M
 - [ ] First tagged release — cut `v0.1.0` + `gh release create`. Effort: S · 🧑 needs-human: version choice and public publish decision
 
 ## Remaining backlog
