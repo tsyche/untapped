@@ -21,7 +21,7 @@ just sync-docs       # CLAUDE.md <-> AGENTS.md
 ## Key files
 
 - `bin/untapped` — CLI entry; dispatches `add` → `lib/add.sh`, else `lib/install.sh`
-- `lib/install.sh` — install/upgrade engine + conf discovery + first-run seed
+- `lib/install.sh` — install/upgrade/list engine + conf discovery + first-run seed
 - `lib/add.sh` — GitHub URL → conf line (asset pick, binary sniff, append)
 - `conf/untapped.conf.example` — packaging shapes; never used implicitly
 - `tests/` — bats; `curl` mocked via `tests/test_helper.bash`

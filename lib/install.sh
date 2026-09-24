@@ -6,11 +6,12 @@
 #
 # Usage:
 #   install.sh                 install missing packages
-#   install.sh --upgrade       check for updates, reinstall anything behind
+#   install.sh upgrade         check for updates, reinstall anything behind
+#   install.sh list            show conf entries + install status (no network)
 #   install.sh --yes           non-interactive; accept all prompts
 #   install.sh --dry-run       show what would change; install nothing
-#   install.sh -c PATH         conf file (default: ~/.config/untapped/conf,
-#                              else packaged example)
+#   install.sh -c PATH         conf file (default: ~/.config/untapped/conf;
+#                              example only when passed explicitly via -c)
 set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,12 +26,13 @@ untapped — install/upgrade CLI binaries from GitHub releases
 Usage:
   untapped                 install missing packages
   untapped upgrade         check for updates, install anything behind
+  untapped list            show conf entries + install status (no network)
   untapped add <url|o/r>   inspect a GH release; append a conf line
   untapped help            show this help
 
 Options:
   -c, --config PATH        conf file
-                           (default: ~/.config/untapped/conf, else example)
+                           (default: ~/.config/untapped/conf)
   -y, --yes                non-interactive; accept all prompts
   -n, --dry-run            show what would change; install nothing
       --upgrade            same as the upgrade subcommand
@@ -41,6 +43,7 @@ EOF
 }
 
 UPGRADE=false
+LIST=false
 YES=false
 DRY_RUN=false
 CONF=""
@@ -49,6 +52,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     upgrade|--upgrade)
       UPGRADE=true
+      shift
+      ;;
+    list)
+      LIST=true
       shift
       ;;
     --yes|-y)
@@ -138,7 +145,7 @@ EOF
 fi
 
 # Friendly hint when conf has no package lines (comments/blank only).
-if ! grep -qve '^[[:space:]]*#' -e '^[[:space:]]*$' "$CONF"; then
+if ! $LIST && ! grep -qve '^[[:space:]]*#' -e '^[[:space:]]*$' "$CONF"; then
   echo "No packages configured yet."
   echo "  untapped add https://github.com/owner/repo"
   echo ""
@@ -172,6 +179,30 @@ get_installed_version() {
   local name="$1"
   grep "^${name}=" "$VERSION_FILE" 2>/dev/null | cut -d= -f2 || echo ""
 }
+
+# --- list: local inventory only (conf + PATH + version state; no network) ---
+if $LIST; then
+  printf '%-24s %s\n' "PACKAGE" "STATUS"
+  while IFS='|' read -r name repo pattern binary os_filter arch_filter || [[ -n "$name" ]]; do
+    [[ -z "$name" || "$name" == \#* ]] && continue
+    name="${name// /}"
+    os_filter="${os_filter// /}"
+    arch_filter="${arch_filter// /}"
+
+    if [[ -n "$os_filter" && "$os_filter" != "$OS" ]]; then
+      status="not available on $OS"
+    elif [[ -n "$arch_filter" && "$arch_filter" != "$ARCH" ]]; then
+      status="not available on $ARCH"
+    elif command -v "$name" &>/dev/null; then
+      ver="$(get_installed_version "$name")"
+      status="installed${ver:+ ($ver)}"
+    else
+      status="not on PATH"
+    fi
+    printf '%-24s %s\n' "$name" "$status"
+  done < "$CONF"
+  exit 0
+fi
 
 set_installed_version() {
   local name="$1" version="$2"

@@ -16,7 +16,39 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"untapped"* ]]
   [[ "$output" == *"upgrade"* ]]
+  [[ "$output" == *"list"* ]]
   [[ "$output" == *"--dry-run"* ]]
+}
+
+@test "help conf default does not claim packaged example" {
+  run run_untapped help
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"else example"* ]]
+  [[ "$output" == *"(default: ~/.config/untapped/conf)"* ]]
+}
+
+@test "list shows conf entries with install status" {
+  printf '#!/bin/sh\necho fake\n' > "$UNTAPPED_BIN_DIR/herebin"
+  chmod +x "$UNTAPPED_BIN_DIR/herebin"
+  PATH="$UNTAPPED_BIN_DIR:$PATH"
+  export PATH
+  printf 'herebin=1.2.3\n' > "$UNTAPPED_SHARE_DIR/installed.conf"
+  write_conf "$TEST_TMP/conf" \
+    "herebin  | ex/herebin  | herebin-{VERSION}.tar.gz  | herebin  | |" \
+    "awaybin  | ex/awaybin  | awaybin-{VERSION}.tar.gz  | awaybin  | |"
+  run run_untapped list -c "$TEST_TMP/conf"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"herebin"*"installed (1.2.3)"* ]]
+  [[ "$output" == *"awaybin"*"not on PATH"* ]]
+}
+
+@test "list marks OS-filter mismatches without installing" {
+  write_conf "$TEST_TMP/conf" \
+    "onlylinux | ex/onlylinux | x-{VERSION}.tar.gz | onlylinux | linux |"
+  run run_untapped list -c "$TEST_TMP/conf"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"onlylinux"*"not available on"* ]]
+  [ ! -e "$UNTAPPED_BIN_DIR/onlylinux" ]
 }
 
 @test "unknown flag exits 1" {

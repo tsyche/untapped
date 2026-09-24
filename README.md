@@ -32,6 +32,7 @@ cd untapped
 ./bin/untapped help
 ./bin/untapped                 # first run: creates empty ~/.config/untapped/conf
 ./bin/untapped add https://github.com/xo/usql
+./bin/untapped list            # conf entries + installed / not on PATH (offline)
 ./bin/untapped --yes           # install anything missing
 ./bin/untapped upgrade --yes   # check for updates
 ```
@@ -68,6 +69,7 @@ ln -s "$PWD/bin/untapped" ~/.local/bin/untapped
 ```
 untapped                 install missing packages
 untapped upgrade         check for updates, install anything behind
+untapped list            show conf entries + install status (no network)
 untapped add <url|o/r>   inspect a GH release; append a conf line
 untapped help            show help
 
