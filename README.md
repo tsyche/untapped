@@ -1,6 +1,6 @@
 # untapped
 
-Install CLI binaries straight from GitHub releases when brew doesn't bottle them.
+Install CLI binaries straight from GitHub releases when brew doesn't bottle them (or even if they are — anything with a release is fair game).
 
 Zero runtime deps beyond `curl` and standard archive tools. Conf-driven: add a line, no script changes.
 
