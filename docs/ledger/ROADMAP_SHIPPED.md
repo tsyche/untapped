@@ -4,6 +4,7 @@
 
 ## Shipped index
 
+- [x] 2026-09-24 — First tagged release (`v0.1.0`)
 - [x] 2026-09-24 — `untapped lint` (conf validator)
 - [x] 2026-09-24 — `untapped why <name>` (single-entry debug)
 - [x] 2026-09-24 — `untapped add` for non-GitHub sources (version-page, one-shot, candidate suggestions)
@@ -23,6 +24,10 @@
 - [x] 2026-09-23 — One-time legacy ghr version-state migration
 
 ## Archived entries
+
+### 2026-09-24 — First tagged release (`v0.1.0`)
+
+1. **First tagged release** — cut `v0.1.0`, backfill the changelog, and publish via `gh release create`. Effort: S
 
 ### 2026-09-24 — `untapped lint` (conf validator)
 

@@ -6,9 +6,8 @@ Conf-driven release installer (GitHub + plain HTTPS) — active work only. Shipp
 
 ## Recommended next
 
-1. **First tagged release** — cut `v0.1.0` + `gh release create`. Effort: S · 🧑 needs-human: version choice and public publish decision
-2. **Accept GH_TOKEN as token fallback** — unblocks an agent-doable quick win while #1 waits on a human. Effort: S
-3. **Generic sources: sha256 sidecar checksums** — closes the integrity gap for non-GitHub installs. Effort: M
+1. **Accept GH_TOKEN as token fallback** — one exported token serves both untapped and `gh`. Effort: S
+2. **Generic sources: sha256 sidecar checksums** — closes the integrity gap for non-GitHub installs. Effort: M
 
 ## High priority backlog
 
@@ -24,7 +23,7 @@ Conf-driven release installer (GitHub + plain HTTPS) — active work only. Shipp
 - [ ] **Resume partial downloads** — `curl -C -` on retries so a flaky 200MB asset doesn't restart from zero. Effort: M
 - [ ] **Mirror prefix support** — `UNTAPPED_MIRROR` (e.g. ghproxy-style) rewrites github.com URLs for slow/blocked networks. Effort: M
 - [ ] **`import --brew`** — read `brew leaves`, generate conf stubs for tools you'd migrate off brew (import ≠ replace, stays out-of-scope's spirit). Effort: M
-- [ ] **Install bootstrap script** — `curl | sh` that installs untapped itself; blocked until the first tagged release exists. Effort: M
+- [ ] **Install bootstrap script** — `curl | sh` that installs untapped itself (unblocked by the first tagged release). Effort: M
 - [ ] **Git-synced conf** — `untapped sync` pulls conf from a git remote (codifies the current scriptorium symlink workflow). Effort: M
 - [ ] **`verify` — re-check installed binaries against recorded hashes** — detects corruption/tamper, prints per-package status. Effort: M
 - [ ] Windows Git Bash support — either ship path handling or close as WSL-only. Effort: L · 🧑 needs-human: product decision ship vs WSL-only
