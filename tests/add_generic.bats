@@ -199,3 +199,87 @@ run_add_prompt() {
   [[ "$output" == *"added tool"* ]]
   grep -Fq 'https://dl.example.com/tool/versions' "$conf"
 }
+
+@test "generic add lists scraped candidates and takes the selected one" {
+  write_generic_tool
+  page="tool 1.4.2 is out
+<a href=\"https://cdn.example.com/tool/1.4.2/tool-9.9.9.zip\">nope</a>
+<a href='$ASSET_URL'>good</a>
+<a href=\"/tool/1.4.2/tool-1.4.2-other.tar.gz\">rel</a>"
+  write_host_text "$SRC_URL" "$page"
+  conf="$TEST_TMP/conf"
+  : > "$conf"
+
+  PROMPT_REPLY_SELECT="2"$'\n' PROMPT_REPLY=$'Y\n' \
+    run run_add_prompt add -c "$conf" "$SRC_URL"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Candidates found on $SRC_URL"* ]]
+  [[ "$output" == *"2) $ASSET_URL"* ]]
+  [[ "$output" == *"https://dl.example.com/tool/1.4.2/tool-1.4.2-other.tar.gz"* ]]
+  [[ "$output" == *"added tool"* ]]
+  grep -Fq "$SRC_URL" "$conf"
+}
+
+@test "generic add --yes auto-picks the best candidate" {
+  write_generic_tool
+  page="tool 1.4.2 is out
+<a href=\"https://cdn.example.com/tool/1.4.2/tool-9.9.9.zip\">nope</a>
+<a href=\"$ASSET_URL\">good</a>"
+  write_host_text "$SRC_URL" "$page"
+  conf="$TEST_TMP/conf"
+  : > "$conf"
+
+  run run_untapped add --yes -c "$conf" "$SRC_URL"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Candidates found on $SRC_URL"* ]]
+  [[ "$output" == *"added tool"* ]]
+  awk -F'|' '
+    {for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)}
+    $1 == "tool" && $2 == src && NF == 8 &&
+      $3 == "https://cdn.example.com/tool/{VERSION}/tool-{VERSION}-{OS}-{ARCH}.tar.gz" &&
+      $4 == "tool" { ok = 1 }
+    END { exit !ok }' src="$SRC_URL" "$conf"
+}
+
+@test "generic add without TTY prints candidates and a template" {
+  write_generic_tool
+  page="tool 1.4.2 is out
+<a href=\"$ASSET_URL\">good</a>"
+  write_host_text "$SRC_URL" "$page"
+  conf="$TEST_TMP/conf"
+  : > "$conf"
+
+  run run_untapped add -c "$conf" "$SRC_URL"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Candidates found on $SRC_URL"* ]]
+  [[ "$output" == *"stdin is not a TTY"* ]]
+  [[ "$output" == *"conf line (edit"* ]]
+  [ ! -s "$conf" ]
+}
+
+@test "generic add reports no viable candidates before falling back" {
+  write_host_text "$SRC_URL" 'tool 1.4.2 is out'
+  conf="$TEST_TMP/conf"
+  : > "$conf"
+
+  run run_untapped add -c "$conf" "$SRC_URL"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no viable candidates found on $SRC_URL"* ]]
+  [[ "$output" == *"conf line (edit"* ]]
+  [ ! -s "$conf" ]
+}
+
+@test "version-page URL ending in a bare version dir goes to the page flow" {
+  u="https://dl.example.com/tool/1.4.2/"
+  write_host_text "$u" 'tool 1.4.2 is out'
+  conf="$TEST_TMP/conf"
+  : > "$conf"
+
+  run run_untapped add -c "$conf" "$u"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no viable candidates found on $u"* ]]
+  [[ "$output" != *"invalid asset filename"* ]]
+  [[ "$output" == *"conf line (edit"* ]]
+  [[ "$output" == *"tool | $u |"* ]]
+  [ ! -s "$conf" ]
+}

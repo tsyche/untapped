@@ -269,6 +269,15 @@ name_from_url() {
       fi
       ;;
   esac
+  # A bare dotted version (…/terraform/1.16.4/) is not a package name —
+  # take the segment before it.
+  if [[ "$seg" != *[A-Za-z]* && -n "$(extract_dotted_version "$seg")" ]]; then
+    local vparent="${u%/*}"
+    vparent="${vparent##*/}"
+    if valid_name "$vparent"; then
+      seg="$vparent"
+    fi
+  fi
   if ! valid_name "$seg"; then
     seg="${u#*://}"
     seg="${seg%%/*}"
@@ -337,7 +346,77 @@ is_direct_asset_url() {
     *.tar.gz|*.tgz|*.tar.bz2|*.tbz|*.tar.xz|*.txz|*.tar|*.zip|*.AppImage)
       return 0 ;;
   esac
-  [[ -n "$(extract_dotted_version "$f")" ]]
+  # Extensionless files count only when they carry a dotted version AND look
+  # like an asset name — a bare version directory segment (…/1.16.4/) is a
+  # page, not a download.
+  [[ "$f" == *[A-Za-z]* && -n "$(extract_dotted_version "$f")" ]]
+}
+
+# True when the filename clearly names an archive — the only kind of link
+# we'll offer as a download candidate.
+is_archive_filename() {
+  local f="$1"
+  case "$f" in
+    *.tar.gz|*.tgz|*.tar.bz2|*.tbz|*.tar.xz|*.txz|*.tar|*.zip|*.AppImage)
+      return 0 ;;
+  esac
+  return 1
+}
+
+# Absolute https archive URLs found on a version page: absolute links plus
+# hrefs (single or double quoted), resolved against the page. Purely
+# best-effort — a page with nothing usable prints nothing, never errors.
+list_asset_candidates() {
+  local body="$1" page="$2" origin dir ref u
+  origin="${page#*://}"
+  origin="https://${origin%%/*}"
+  dir="${page%%\?*}"
+  dir="${dir%%\#*}"
+  dir="${dir%/*}"
+  {
+    printf '%s\n' "$body" \
+      | grep -Eo "https://[^\"'<>[:space:])]+" || true
+    printf '%s\n' "$body" \
+      | grep -Eo "href=[\"'][^\"']+[\"']" \
+      | sed -E "s/^href=[\"']|[\"']\$//g" || true
+  } | while IFS= read -r ref; do
+    case "$ref" in
+      ''|\#*) continue ;;
+      //*) u="https:$ref" ;;
+      /*) u="$origin$ref" ;;
+      http://*) continue ;;
+      https://*) u="$ref" ;;
+      *) u="$dir/$ref" ;;
+    esac
+    printf '%s\n' "$u"
+  done | awk '!seen[$0]++' | while IFS= read -r u; do
+    local stem="${u%%\?*}"
+    stem="${stem%%\#*}"
+    stem="${stem%/}"
+    if is_archive_filename "${stem##*/}"; then
+      printf '%s\n' "$u"
+    fi
+  done
+}
+
+# Best candidate on stdin for --yes: version, then OS/arch filename tokens.
+best_candidate() {
+  local version="$1" u f aos aarch s best="" best_score=-1
+  while IFS= read -r u; do
+    [[ -n "$u" ]] || continue
+    f="${u##*/}"
+    s=0
+    [[ -n "$version" && "$u" == *"$version"* ]] && s=$((s + 5))
+    aos="$(os_of_name "$f")"
+    aarch="$(arch_of_name "$f")"
+    [[ -n "$aos" && "$aos" == "$OS" ]] && s=$((s + 20))
+    [[ -n "$aarch" && "$aarch" == "$ARCH" ]] && s=$((s + 20))
+    if [[ "$s" -gt "$best_score" ]]; then
+      best_score="$s"
+      best="$u"
+    fi
+  done
+  printf '%s\n' "$best"
 }
 
 # Package name from an asset filename: drop the extension, then trailing
@@ -452,8 +531,10 @@ generic_from_asset() {
   finish_write "$line"
 }
 
-# Version-page flow: probe the page, ask for one concrete download URL
-# (or take --asset), then append via generic_from_asset.
+# Version-page flow: probe the page, list any archive links found (pick
+# interactively, best one under --yes), or fall back to asking for one
+# concrete download URL (or take --asset), then append via
+# generic_from_asset.
 add_generic() {
   local url="$1" body version asset_url name
 
@@ -484,16 +565,59 @@ add_generic() {
 
   asset_url="$ASSET_OVERRIDE"
   if [[ -z "$asset_url" ]]; then
-    if [[ ! -t 0 ]]; then
-      echo "untapped add: stdin is not a TTY; pass --asset with a full download URL"
-      print_generic_template "$url" "$name"
-      exit 1
+    candidates="$(list_asset_candidates "$body" "$url" || true)"
+    count=0
+    if [[ -n "$candidates" ]]; then
+      count="$(printf '%s\n' "$candidates" | awk 'END { print NR }')"
     fi
-    printf 'Download URL for this release (%s): ' "$version"
-    if ! read -r asset_url; then
-      echo ""
-      echo "aborted; conf not modified"
-      exit 1
+    if [[ "$count" -gt 0 ]]; then
+      echo "Candidates found on $url:"
+      i=1
+      while IFS= read -r c; do
+        printf '  %d) %s\n' "$i" "$c"
+        i=$((i + 1))
+      done <<< "$candidates"
+      if [[ "$YES" == true ]]; then
+        asset_url="$(printf '%s\n' "$candidates" | best_candidate "$version")"
+      elif [[ ! -t 0 ]]; then
+        echo "untapped add: stdin is not a TTY; pass --asset with a full download URL or --yes"
+        print_generic_template "$url" "$name"
+        exit 1
+      else
+        while :; do
+          printf 'Select download URL [1-%s] (Enter = paste one manually): ' "$count"
+          if ! read -r sel; then
+            echo ""
+            echo "aborted; conf not modified"
+            exit 1
+          fi
+          if [[ -z "$sel" ]]; then
+            asset_url=""
+            break
+          fi
+          if [[ "$sel" =~ ^[0-9]+$ ]] && [[ "$sel" -ge 1 ]] && [[ "$sel" -le "$count" ]]; then
+            asset_url="$(printf '%s\n' "$candidates" | sed -n "${sel}p")"
+            break
+          fi
+          echo "invalid selection: $sel"
+        done
+      fi
+    fi
+    if [[ -z "$asset_url" ]]; then
+      if [[ "$count" -eq 0 ]]; then
+        echo "no viable candidates found on $url"
+      fi
+      if [[ ! -t 0 ]]; then
+        echo "untapped add: stdin is not a TTY; pass --asset with a full download URL"
+        print_generic_template "$url" "$name"
+        exit 1
+      fi
+      printf 'Download URL for this release (%s): ' "$version"
+      if ! read -r asset_url; then
+        echo ""
+        echo "aborted; conf not modified"
+        exit 1
+      fi
     fi
   fi
   if [[ -z "$asset_url" ]]; then

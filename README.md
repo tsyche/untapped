@@ -108,7 +108,7 @@ untapped add owner/repo --yes           # write without prompt
 
 Generated conf entries preserve noncanonical platform spellings such as `macos` and `aarch64` with platform filters. Review the printed line before sharing it across machines.
 
-It also accepts any `https://` version-page URL (see [Non-GitHub sources](#non-github-sources)): it probes the page for a version, asks for one concrete download URL for that release (`--asset` takes it as a full URL for scripted use), derives `{VERSION}`/`{OS}`/`{ARCH}` plus platform filters, sniffs the binary inside, and appends the line. When the page can't be fetched, has no version, or stdin isn't a TTY, it prints an editable conf line instead:
+It also accepts any `https://` version-page URL (see [Non-GitHub sources](#non-github-sources)): it probes the page for a version, lists every archive link it finds there (numbered pick; `--yes` takes the best version/OS/arch match), or falls back to asking for one concrete download URL when the page has no usable links (`--asset` forces a full URL either way). It then derives `{VERSION}`/`{OS}`/`{ARCH}` plus platform filters, sniffs the binary inside, and appends the line. When the page can't be fetched, has no version, or stdin isn't a TTY, it prints an editable conf line instead:
 
 ```sh
 untapped add https://dl.k8s.io/release/stable.txt

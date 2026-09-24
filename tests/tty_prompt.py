@@ -16,6 +16,7 @@ output = bytearray()
 answered = False
 url_answered = False
 page_answered = False
+select_answered = False
 deadline = time.monotonic() + 15
 try:
     while time.monotonic() < deadline:
@@ -30,6 +31,9 @@ try:
         if not chunk:
             break
         output.extend(chunk)
+        if not select_answered and b'Select download URL' in output:
+            os.write(fd, os.environ.get('PROMPT_REPLY_SELECT', '\n').encode())
+            select_answered = True
         if not url_answered and b'Download URL for this release' in output:
             os.write(fd, os.environ.get('PROMPT_REPLY_URL', '\n').encode())
             url_answered = True
@@ -47,4 +51,5 @@ finally:
     _, status = os.waitpid(pid, 0)
     sys.stdout.buffer.write(output)
 
-sys.exit(os.waitstatus_to_exitcode(status) if (answered or url_answered or page_answered) else 1)
+sys.exit(os.waitstatus_to_exitcode(status)
+         if (answered or url_answered or page_answered or select_answered) else 1)
