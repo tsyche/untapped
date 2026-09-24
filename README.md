@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/tsyche/untapped/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tsyche/untapped/actions/workflows/ci.yml?query=branch%3Amain)
 
-**TL;DR:** Install CLI binaries and macOS app bundles from GitHub releases using a plain-text package list. Add a repository, then install or upgrade its release assets.
+**TL;DR:** Install CLI binaries and macOS app bundles straight from GitHub releases — when brew doesn't bottle them (or even if it does; anything with a release is fair game) — via a plain-text package list. Add a repository, then install or upgrade its release assets.
 
 Zero runtime deps beyond `curl` and standard archive tools. Conf-driven: add a line, no script changes.
 
