@@ -5,7 +5,7 @@ Conf-driven installer for CLI binaries (and `.app` bundles) straight from GitHub
 ## Stack
 
 - Bash (`bin/untapped`, `lib/install.sh`, `lib/add.sh`)
-- bats + shellcheck (CI: Ubuntu + macOS)
+- bats (Ubuntu + macOS); shellcheck + check-docs (Ubuntu)
 - Task runner: `just` (default recipe lists commands)
 
 ## Key commands
@@ -25,7 +25,7 @@ just sync-docs       # CLAUDE.md <-> AGENTS.md
 - `lib/add.sh` — GitHub URL → conf line (asset pick, binary sniff, append)
 - `conf/untapped.conf.example` — packaging shapes; never used implicitly
 - `tests/` — bats; `curl` mocked via `tests/test_helper.bash`
-- `.github/workflows/ci.yml` — shellcheck + bats + check-docs
+- `.github/workflows/ci.yml` — shellcheck (Ubuntu); bats (Ubuntu + macOS); check-docs (Ubuntu)
 
 ## Notes
 

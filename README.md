@@ -146,22 +146,15 @@ Failed:
 
 Dry-run variants print `[dry-run] Installed: 0  Updated: 0 ...` plus `Would install:` / `Would update:` lists. Exit code `1` if anything failed.
 
-## Why not brew?
-
-For tools with no maintained formula/cask — or a tap that lags upstream releases — `untapped` installs the upstream GitHub release directly. Complements brew; doesn't replace it.
-
 ## Development
 
 ```sh
-just setup   # verify shellcheck + bats
-just test    # bats tests/*.bats
-just lint    # shellcheck -x lib/install.sh lib/add.sh bin/untapped tests/test_helper.bash
-just check-docs
+just setup && just test && just lint && just check-docs
 ```
 
-CI runs shellcheck + bats + check-docs on `ubuntu-24.04` and `macos-latest` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+CI: shellcheck + check-docs on `ubuntu-24.04`; bats on `ubuntu-24.04` and `macos-latest` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
-Tests mock `curl` with fixtures; no network required.
+Tests mock `curl` with fixtures; no network required. See [CONTRIBUTING.md](CONTRIBUTING.md) for PR basics and [ROADMAP.md](ROADMAP.md) for planned work.
 
 ## License
 
