@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# untapped — manage GitHub-release binaries (install/upgrade)
+set -euo pipefail
+
+# Resolve symlinks so we find the real repo even when called via ~/.local/bin
+SOURCE="$0"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+BIN_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+ROOT="$(cd "$BIN_DIR/.." && pwd)"
+INSTALLER="$ROOT/lib/install.sh"
+
+if [[ ! -f "$INSTALLER" ]]; then
+  echo "untapped: engine not found at $INSTALLER" >&2
+  exit 1
+fi
+
+case "${1:-}" in
+  help|--help|-h)
+    shift || true
+    # Prefer engine usage when no subcommand remains after help
+    if [[ $# -eq 0 ]]; then
+      exec bash "$INSTALLER" help
+    fi
+    exec bash "$INSTALLER" "$@"
+    ;;
+  *)
+    exec bash "$INSTALLER" "$@"
+    ;;
+esac
