@@ -86,4 +86,27 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"[dry-run] Installed: 0  Updated: 0  Skipped:"* ]]
   [[ "$output" == *"Failed: 0"* ]]
+  [[ "$output" == *"No packages configured yet"* ]]
+}
+
+@test "first run seeds empty conf and points at add" {
+  # No -c, no ~/.config/untapped/conf under fake HOME
+  run run_untapped --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Created empty conf"* ]]
+  [[ "$output" == *"untapped add https://github.com/owner/repo"* ]]
+  [ -f "$HOME/.config/untapped/conf" ]
+  # Did not install anything
+  [ ! -e "$UNTAPPED_BIN_DIR/usql" ]
+}
+
+@test "empty conf (no packages) hints at add without installing" {
+  mkdir -p "$HOME/.config/untapped"
+  write_conf "$HOME/.config/untapped/conf" \
+    "# nothing yet"
+  run run_untapped --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No packages configured yet"* ]]
+  [[ "$output" == *"untapped add"* ]]
+  [[ "$output" == *"Installed: 0"* ]]
 }

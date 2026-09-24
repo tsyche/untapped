@@ -25,6 +25,7 @@ untapped — install/upgrade CLI binaries from GitHub releases
 Usage:
   untapped                 install missing packages
   untapped upgrade         check for updates, install anything behind
+  untapped add <url|o/r>   inspect a GH release; append a conf line
   untapped help            show this help
 
 Options:
@@ -110,19 +111,51 @@ if [[ -n "$CONF" ]]; then
   fi
 elif [[ -f "$DEFAULT_USER_CONF" ]]; then
   CONF="$DEFAULT_USER_CONF"
-elif [[ -f "$EXAMPLE_CONF" ]]; then
-  CONF="$EXAMPLE_CONF"
-  echo "note: using example conf ($CONF)"
-  echo "      copy it to $DEFAULT_USER_CONF to customize"
 else
-  echo "untapped: no conf found (looked for $DEFAULT_USER_CONF and $EXAMPLE_CONF)" >&2
-  exit 1
+  # First run: seed an empty user conf, point at `untapped add`, exit.
+  # Never auto-install from the packaged example.
+  mkdir -p "$(dirname "$DEFAULT_USER_CONF")"
+  cat > "$DEFAULT_USER_CONF" <<'EOF'
+# untapped package list — one per line.
+# Format: name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter
+# Add a package:  untapped add https://github.com/owner/repo
+# Starter set:    cp conf/untapped.conf.example ~/.config/untapped/conf
+EOF
+  CONF="$DEFAULT_USER_CONF"
+  echo "Created empty conf: $CONF"
+  echo ""
+  echo "Add packages with:"
+  echo "  untapped add https://github.com/owner/repo"
+  echo ""
+  echo "Or seed from the example:"
+  echo "  cp $EXAMPLE_CONF $DEFAULT_USER_CONF"
+  echo ""
+  echo "Optional — put untapped on PATH (symlink):"
+  echo "  ln -s $ROOT/bin/untapped ~/.local/bin/untapped"
+  echo ""
+  echo "Then run:  untapped --yes"
+  exit 0
+fi
+
+# Friendly hint when conf has no package lines (comments/blank only).
+if ! grep -qve '^[[:space:]]*#' -e '^[[:space:]]*$' "$CONF"; then
+  echo "No packages configured yet."
+  echo "  untapped add https://github.com/owner/repo"
+  echo ""
 fi
 
 INSTALL_DIR="${UNTAPPED_BIN_DIR:-$HOME/.local/bin}"
 VERSION_DIR="${UNTAPPED_SHARE_DIR:-$HOME/.local/share/untapped}"
 VERSION_FILE="$VERSION_DIR/installed.conf"
 mkdir -p "$INSTALL_DIR" "$VERSION_DIR"
+
+# One-time migrate from the old ghr state file so upgrades don't show
+# every package as "unknown" after switching tools.
+LEGACY_VERSION_FILE="$HOME/.local/share/gh-releases/installed.conf"
+if [[ ! -s "$VERSION_FILE" && -f "$LEGACY_VERSION_FILE" ]]; then
+  cp "$LEGACY_VERSION_FILE" "$VERSION_FILE"
+  echo "note: imported installed versions from legacy ghr state"
+fi
 touch "$VERSION_FILE"
 
 github_curl() {

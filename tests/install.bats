@@ -133,3 +133,33 @@ teardown() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"not a TTY"* ]] || [[ "$output" == *"--yes"* ]]
 }
+
+@test "imports legacy ghr installed.conf when untapped state is empty" {
+  stage="$(mktemp -d)"
+  printf '#!/bin/sh\necho legacy\n' > "$stage/legacybin"
+  chmod +x "$stage/legacybin"
+  tar -czf "$TEST_TMP/legacybin.tar.gz" -C "$stage" legacybin
+  rm -rf "$stage"
+
+  write_api_json ex legacybin v1.0.0
+  write_asset "legacybin-1.0.0.tar.gz" "$TEST_TMP/legacybin.tar.gz"
+
+  # Pretend ghr left state behind (real path under fake HOME)
+  mkdir -p "$HOME/.local/share/gh-releases"
+  printf 'legacybin=0.9.0\n' > "$HOME/.local/share/gh-releases/installed.conf"
+
+  # Simulate empty untapped state at the real default path under fake HOME
+  mkdir -p "$HOME/.local/share/untapped"
+  : > "$HOME/.local/share/untapped/installed.conf"
+
+  write_conf "$TEST_TMP/conf" \
+    "legacybin | ex/legacybin | legacybin-{VERSION}.tar.gz | legacybin | |"
+
+  # Point UNTAPPED_SHARE_DIR at the default path under fake HOME
+  export UNTAPPED_SHARE_DIR="$HOME/.local/share/untapped"
+
+  run run_untapped --dry-run --yes -c "$TEST_TMP/conf"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"imported installed versions from legacy ghr state"* ]]
+  grep -q '^legacybin=0.9.0$' "$HOME/.local/share/untapped/installed.conf"
+}

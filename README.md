@@ -29,14 +29,18 @@ Homebrew covers most tools. For the rest — no formula, abandoned tap, lagging 
 git clone https://github.com/tsyche/untapped.git
 cd untapped
 
-mkdir -p ~/.config/untapped
+./bin/untapped help
+./bin/untapped                 # first run: creates empty ~/.config/untapped/conf
+./bin/untapped add https://github.com/xo/usql
+./bin/untapped --yes           # install anything missing
+./bin/untapped upgrade --yes   # check for updates
+```
+
+First run with no conf seeds an empty `~/.config/untapped/conf` and exits with that `add` hint (plus an optional PATH symlink one-liner) — it never installs from the packaged example. Optional starter set instead:
+
+```sh
 cp conf/untapped.conf.example ~/.config/untapped/conf
 $EDITOR ~/.config/untapped/conf
-
-./bin/untapped help
-./bin/untapped --dry-run --yes   # preview what would happen
-./bin/untapped --yes             # install anything missing
-./bin/untapped upgrade --yes     # check for updates
 ```
 
 Optional: put `bin/` on `PATH`, or symlink:
@@ -48,8 +52,8 @@ ln -s "$PWD/bin/untapped" ~/.local/bin/untapped
 ### Conf discovery order
 
 1. `-c /path/to/conf`
-2. `~/.config/untapped/conf`
-3. packaged `conf/untapped.conf.example`
+2. `~/.config/untapped/conf` (created empty on first run if missing)
+3. packaged `conf/untapped.conf.example` only when you pass `-c` at it — never used implicitly
 
 ### Environment
 
@@ -64,6 +68,7 @@ ln -s "$PWD/bin/untapped" ~/.local/bin/untapped
 ```
 untapped                 install missing packages
 untapped upgrade         check for updates, install anything behind
+untapped add <url|o/r>   inspect a GH release; append a conf line
 untapped help            show help
 
 Options:
@@ -74,6 +79,19 @@ Options:
 ```
 
 Non-interactive runs without `--yes` fail fast with a clear message (no silent hang). Cron/launchd should pass `--yes`.
+
+### `untapped add`
+
+Point it at a GitHub repo (URL or `owner/repo`). It fetches the latest release, scores assets for your OS/arch, downloads the winner just long enough to find the binary path inside, then shows the conf line and asks before appending:
+
+```sh
+untapped add https://github.com/xo/usql
+untapped add xo/usql --dry-run          # print line only
+untapped add openai/tart --asset tart.tar.gz
+untapped add owner/repo --yes           # write without prompt
+```
+
+Flags: `-c PATH` (conf to append), `--name` (override package name), `--asset` (force asset filename). Refuses to write the packaged example conf. Then run `untapped` to install.
 
 ## Conf format
 

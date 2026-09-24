@@ -27,6 +27,15 @@ case "${1:-}" in
     fi
     exec bash "$INSTALLER" "$@"
     ;;
+  add)
+    shift
+    ADDER="$ROOT/lib/add.sh"
+    if [[ ! -f "$ADDER" ]]; then
+      echo "untapped: add engine not found at $ADDER" >&2
+      exit 1
+    fi
+    exec bash "$ADDER" "$@"
+    ;;
   *)
     exec bash "$INSTALLER" "$@"
     ;;

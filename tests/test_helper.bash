@@ -133,6 +133,27 @@ write_api_json() {
   printf '{"tag_name": "%s"}\n' "$tag" > "$FIXTURES/api/${owner}_${repo}.json"
 }
 
+# write_api_release owner repo tag asset1 [asset2...]
+# Builds a releases/latest body with browser_download_url entries.
+write_api_release() {
+  local owner="$1" repo="$2" tag="$3"
+  shift 3
+  mkdir -p "$FIXTURES/api"
+  {
+    printf '{"tag_name": "%s", "assets": [' "$tag"
+    local first=1 a
+    for a in "$@"; do
+      if [[ $first -eq 0 ]]; then
+        printf ','
+      fi
+      first=0
+      printf '{"name": "%s", "browser_download_url": "https://github.com/%s/%s/releases/download/%s/%s"}' \
+        "$a" "$owner" "$repo" "$tag" "$a"
+    done
+    printf ']}\n'
+  } > "$FIXTURES/api/${owner}_${repo}.json"
+}
+
 write_asset() {
   # write_asset <filename> <<< content  OR write_asset <filename> from path
   local name="$1"
