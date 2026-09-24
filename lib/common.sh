@@ -47,6 +47,27 @@ github_curl() {
   fi
 }
 
+# Retry wrapper for transient failures (network drops, 5xx, rate limits).
+# UNTAPPED_RETRIES = attempts after the first (default 2; 0 = no retries).
+# Linear backoff: 1s, 2s, ... Not used for checksum probes — a missing
+# checksums file is the common case and must stay a cheap single miss.
+github_curl_retry() {
+  local retries=2 n=1
+  if [[ -n "${UNTAPPED_RETRIES:-}" && "${UNTAPPED_RETRIES}" =~ ^[0-9]+$ ]]; then
+    retries="${UNTAPPED_RETRIES}"
+  fi
+  while true; do
+    if github_curl "$@"; then
+      return 0
+    fi
+    if (( n > retries )); then
+      return 1
+    fi
+    sleep "$n"
+    n=$((n + 1))
+  done
+}
+
 list_archive() {
   case "$1" in
     *.tar.gz|*.tgz) tar -tzf "$1" ;;

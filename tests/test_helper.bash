@@ -12,6 +12,8 @@ setup_test_env() {
   export HOME="$TEST_TMP/home"
   export UNTAPPED_BIN_DIR="$TEST_TMP/bin"
   export UNTAPPED_SHARE_DIR="$TEST_TMP/share"
+  # No backoff sleeps in tests unless a test opts in per-case.
+  export UNTAPPED_RETRIES=0
   MOCK_BIN="$TEST_TMP/mockbin"
   FIXTURES="$TEST_TMP/fixtures"
   mkdir -p "$HOME" "$UNTAPPED_BIN_DIR" "$UNTAPPED_SHARE_DIR" "$MOCK_BIN" "$FIXTURES"
@@ -32,7 +34,9 @@ teardown_test_env() {
 # Layout expected under $FIXTURES:
 #   api/<owner>_<repo>.json          → API releases/latest body
 #   assets/<escaped-or-slug>         → raw body written when -o used
+# Every request is appended to $FIXTURES/curl.log (attempt counts in tests).
 # Optional: $MOCK_CURL_FAIL → a URL substring whose matching requests fail
+# Optional: $MOCK_CURL_FAIL_ONCE → matching requests fail once, then succeed
 install_mock_curl() {
   cat > "$MOCK_BIN/curl" <<'MOCK'
 #!/usr/bin/env bash
@@ -65,11 +69,20 @@ if [[ -z "$url" ]]; then
   exit 2
 fi
 
+fixtures="${MOCK_FIXTURES:?MOCK_FIXTURES not set}"
+printf '%s\n' "$url" >> "$fixtures/curl.log"
+
 if [[ -n "${MOCK_CURL_FAIL:-}" && "$url" == *"${MOCK_CURL_FAIL}"* ]]; then
   exit 22
 fi
 
-fixtures="${MOCK_FIXTURES:?MOCK_FIXTURES not set}"
+if [[ -n "${MOCK_CURL_FAIL_ONCE:-}" && "$url" == *"${MOCK_CURL_FAIL_ONCE}"* ]]; then
+  marker="$fixtures/failonce.${MOCK_CURL_FAIL_ONCE//[^A-Za-z0-9]/_}"
+  if [[ ! -e "$marker" ]]; then
+    touch "$marker"
+    exit 22
+  fi
+fi
 
 # GitHub API releases/latest
 if [[ "$url" == *"/releases/latest"* ]]; then

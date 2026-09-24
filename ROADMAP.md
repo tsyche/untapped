@@ -6,8 +6,7 @@ Conf-driven GitHub-release installer — active work only. Shipped history: [doc
 
 ## Recommended next
 
-1. **Parallel installs / retry** — faster multi-package runs; retry transient download failures. Effort: M
-2. **Non-GitHub hosts (generic HTTP assets)** — install from plain HTTPS release URLs, not only github.com. Effort: L
+1. **Non-GitHub hosts (generic HTTP assets)** — install from plain HTTPS release URLs, not only github.com. Effort: L
 
 ## High priority backlog
 

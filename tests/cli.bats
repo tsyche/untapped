@@ -23,6 +23,7 @@ teardown() {
   [[ "$output" == *"outdated"* ]]
   [[ "$output" == *"remove"* ]]
   [[ "$output" == *"--dry-run"* ]]
+  [[ "$output" == *"--jobs"* ]]
 }
 
 @test "help conf default does not claim packaged example" {

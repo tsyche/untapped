@@ -4,6 +4,7 @@
 
 ## Shipped index
 
+- [x] 2026-09-24 — Parallel installs / retry
 - [x] 2026-09-24 — `untapped remove`
 - [x] 2026-09-24 — `untapped doctor`
 - [x] 2026-09-24 — `untapped outdated`
@@ -18,6 +19,10 @@
 - [x] 2026-09-23 — One-time legacy ghr version-state migration
 
 ## Archived entries
+
+### 2026-09-24 — Parallel installs / retry
+
+2. **Parallel installs / retry** — faster multi-package runs; retry transient download failures. Effort: M
 
 ### 2026-09-24 — `untapped remove`
 

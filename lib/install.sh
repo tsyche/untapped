@@ -3,6 +3,8 @@
 # Scans a conf file for what's missing or outdated, prompts before acting
 # (or use --yes). Verifies sha256 against the release's checksums file when
 # one exists (best-effort — silent skip if not published).
+# Downloads run in parallel (-j, default 4) with bounded retries for
+# transient failures (--retries, default 2).
 #
 # Usage:
 #   install.sh                 install missing packages
@@ -43,10 +45,15 @@ Options:
                            (default: ~/.config/untapped/conf)
   -y, --yes                non-interactive; accept all prompts
   -n, --dry-run            show what would change; install nothing
+  -j, --jobs N             parallel install jobs (default: 4; 1 = serial)
+      --retries N          retries for transient download/API failures
+                           (default: 2; 0 = off)
       --upgrade            same as the upgrade subcommand
 
 Environment:
   GITHUB_TOKEN             optional; raises API rate limits
+  UNTAPPED_JOBS            default for -j
+  UNTAPPED_RETRIES         default for --retries
 EOF
 }
 
@@ -57,6 +64,8 @@ OUTDATED=false
 YES=false
 DRY_RUN=false
 CONF=""
+JOBS_ARG=""
+RETRIES_ARG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -93,6 +102,22 @@ while [[ $# -gt 0 ]]; do
       CONF="$2"
       shift 2
       ;;
+    -j|--jobs)
+      if [[ $# -lt 2 ]]; then
+        echo "untapped: -j requires a number" >&2
+        exit 1
+      fi
+      JOBS_ARG="$2"
+      shift 2
+      ;;
+    --retries)
+      if [[ $# -lt 2 ]]; then
+        echo "untapped: --retries requires a number" >&2
+        exit 1
+      fi
+      RETRIES_ARG="$2"
+      shift 2
+      ;;
     help|--help|-h)
       usage
       exit 0
@@ -104,6 +129,20 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Flag > env > default. Export the effective retries value so background
+# install jobs and github_curl_retry agree on it.
+JOBS="${JOBS_ARG:-${UNTAPPED_JOBS:-4}}"
+RETRIES="${RETRIES_ARG:-${UNTAPPED_RETRIES:-2}}"
+if ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "untapped: --jobs must be a positive integer: $JOBS" >&2
+  exit 1
+fi
+if ! [[ "$RETRIES" =~ ^[0-9]+$ ]]; then
+  echo "untapped: --retries must be a non-negative integer: $RETRIES" >&2
+  exit 1
+fi
+export UNTAPPED_RETRIES="$RETRIES"
 
 case "$(uname -s)" in
   Darwin) OS="darwin" ;;
@@ -285,7 +324,7 @@ set_installed_version() {
 
 fetch_latest_tag() {
   local repo="$1"
-  github_curl "https://api.github.com/repos/$repo/releases/latest" \
+  github_curl_retry "https://api.github.com/repos/$repo/releases/latest" \
     | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
 }
 
@@ -353,7 +392,7 @@ install_binary() (
   tmpdir=$(mktemp -d) || return 1
   tmpdir=$(cd "$tmpdir" && pwd -P) || return 1
   trap 'rm -rf "$tmpdir"; if [[ -n "$staged" ]]; then rm -f "$staged"; fi' EXIT
-  if ! github_curl "$url" -o "$tmpdir/$asset"; then
+  if ! github_curl_retry "$url" -o "$tmpdir/$asset"; then
     echo "FAILED: $name (download failed: $url)"
     return 1
   fi
@@ -430,9 +469,129 @@ install_binary() (
   fi
   [[ -z "$backup" ]] || rm -rf "$backup"
   staged=""
-  set_installed_version "$name" "$version" || return 1
+  # Version state is recorded by the caller after the job drains —
+  # concurrent subshells writing the state file would race.
   echo "$name $version -> $INSTALL_DIR/$name"
 )
+
+# --- Parallel job pool ---
+# Jobs run as background subshells (up to $JOBS at once); stdout is buffered
+# per job and printed FIFO on drain, so output stays in submission order.
+# The parent alone writes counters and version state.
+JOB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/untapped-jobs.XXXXXX")"
+trap 'rm -rf "$JOB_DIR"' EXIT
+
+IP_PID=()
+IP_OUT=()
+IP_ST=()
+IP_META=()
+IP_KIND=()
+IP_HEAD=0
+
+fetch_tag_job() (
+  local repo="$1" stf="$2" tag
+  tag="$(fetch_latest_tag "$repo")"
+  if [[ -z "$tag" ]]; then
+    exit 1
+  fi
+  printf '%s\n' "$tag" > "$stf"
+)
+
+run_install_job() (
+  local name="$1" repo="$2" pattern="$3" binary="$4" version_pin="$5" statusf="$6"
+  local tag version
+  if [[ -n "$version_pin" ]]; then
+    tag="$version_pin"
+  else
+    tag="$(fetch_latest_tag "$repo")"
+  fi
+  if [[ -z "$tag" ]]; then
+    echo "could not fetch latest release tag" > "$statusf"
+    exit 1
+  fi
+  version="${tag#v}"
+  if install_binary "$name" "$repo" "$pattern" "$binary" "$tag" "$version"; then
+    printf 'ok|%s\n' "$version" > "$statusf"
+    exit 0
+  fi
+  echo "install failed (see above)" > "$statusf"
+  exit 1
+)
+
+run_upgrade_job() (
+  local name="$1" repo="$2" pattern="$3" binary="$4" tag="$5" version="$6" statusf="$7"
+  if install_binary "$name" "$repo" "$pattern" "$binary" "$tag" "$version"; then
+    printf 'ok|%s\n' "$version" > "$statusf"
+    exit 0
+  fi
+  echo "upgrade failed (see above)" > "$statusf"
+  exit 1
+)
+
+process_install_result() {
+  local i="$1"
+  local entry="${IP_META[i]}" kind="${IP_KIND[i]}"
+  local name st reason version
+  cat "${IP_OUT[i]}" 2>/dev/null || true
+  name="${entry%%|*}"
+  st="$(cat "${IP_ST[i]}" 2>/dev/null || true)"
+  if [[ "$st" == ok\|* ]]; then
+    version="${st#ok|}"
+    if set_installed_version "$name" "$version"; then
+      if [[ "$kind" == upgrade ]]; then
+        updated_count=$((updated_count + 1))
+      else
+        installed_count=$((installed_count + 1))
+      fi
+    else
+      failed+=("$name|$kind failed (see above)")
+    fi
+  else
+    reason="${st#fail|}"
+    [[ -n "$reason" ]] || reason="$kind failed (see above)"
+    failed+=("$name|$reason")
+  fi
+}
+
+pool_wait_front() {
+  wait "${IP_PID[IP_HEAD]}" || true
+  IP_HEAD=$((IP_HEAD + 1))
+}
+
+pool_capacity_wait() {
+  while (( ${#IP_PID[@]} - IP_HEAD >= JOBS )); do
+    pool_wait_front
+    process_install_result "$((IP_HEAD - 1))"
+  done
+}
+
+pool_drain() {
+  while (( IP_HEAD < ${#IP_PID[@]} )); do
+    pool_wait_front
+    process_install_result "$((IP_HEAD - 1))"
+  done
+}
+
+pool_submit() {
+  local kind="$1" entry="$2"
+  local name repo pattern binary version_pin tag version
+  local outf="$JOB_DIR/out.${#IP_PID[@]}" stf="$JOB_DIR/st.${#IP_PID[@]}"
+  pool_capacity_wait
+  if [[ "$kind" == install ]]; then
+    IFS='|' read -r name repo pattern binary version_pin <<< "$entry"
+    echo "installing $name..."
+    run_install_job "$name" "$repo" "$pattern" "$binary" "$version_pin" "$stf" > "$outf" 2>&1 &
+  else
+    IFS='|' read -r name repo pattern binary tag version <<< "$entry"
+    echo "upgrading $name..."
+    run_upgrade_job "$name" "$repo" "$pattern" "$binary" "$tag" "$version" "$stf" > "$outf" 2>&1 &
+  fi
+  IP_PID+=($!)
+  IP_META+=("$entry")
+  IP_KIND+=("$kind")
+  IP_OUT+=("$outf")
+  IP_ST+=("$stf")
+}
 
 prompt_yes() {
   # default_yes: "Y/n" vs "y/N"
@@ -454,6 +613,9 @@ prompt_yes() {
 }
 
 # --- Collect work ---
+# Pass 1 partitions conf entries offline; pass 2 fetches latest tags for
+# installed unpinned entries in parallel; pass 3 decides in conf order so
+# display order stays stable.
 to_install=()
 to_install_names=()
 to_upgrade=()
@@ -464,6 +626,8 @@ installed_count=0
 updated_count=0
 would_install=()
 would_upgrade=()
+PEND_META=()
+PEND_PIN=()
 
 while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin || [[ -n "$name" ]]; do
   name="${name//[[:space:]]/}"
@@ -494,27 +658,8 @@ while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin
       to_install+=("$name|$repo|$pattern|$binary|$version_pin")
       to_install_names+=("$name")
     else
-      if [[ -n "$version_pin" ]]; then
-        local_tag="$version_pin"
-      else
-        local_tag=$(fetch_latest_tag "$repo")
-      fi
-      latest="${local_tag#v}"
-      installed=$(get_installed_version "$name")
-      if [[ -z "$local_tag" ]]; then
-        failed+=("$name|could not fetch latest release tag")
-      elif [[ -z "$installed" || "$installed" != "$latest" ]]; then
-        to_upgrade+=("$name|$repo|$pattern|$binary|$local_tag|$latest")
-        if [[ -n "$version_pin" ]]; then
-          to_upgrade_display+=("$name: ${installed:-unknown} → $latest (pinned)")
-        else
-          to_upgrade_display+=("$name: ${installed:-unknown} → $latest")
-        fi
-      elif [[ -n "$version_pin" ]]; then
-        echo "current $name ($installed, pinned)"
-      else
-        echo "current $name ($installed)"
-      fi
+      PEND_META+=("$name|$repo|$pattern|$binary")
+      PEND_PIN+=("$version_pin")
     fi
   else
     if ! command -v "$name" &>/dev/null; then
@@ -526,6 +671,64 @@ while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin
     fi
   fi
 done < "$CONF"
+
+# Pass 2: parallel latest-tag fetches (installed, unpinned entries only).
+TF_ST=()
+TF_PID=()
+TF_HEAD=0
+if [[ ${#PEND_META[@]} -gt 0 ]]; then
+  for i in "${!PEND_META[@]}"; do
+    TF_ST[i]="$JOB_DIR/tag.$i.st"
+    if [[ -n "${PEND_PIN[i]}" ]]; then
+      continue
+    fi
+    while (( ${#TF_PID[@]} - TF_HEAD >= JOBS )); do
+      wait "${TF_PID[TF_HEAD]}" || true
+      TF_HEAD=$((TF_HEAD + 1))
+    done
+    tf_meta="${PEND_META[i]}"
+    tf_repo="${tf_meta#*|}"
+    tf_repo="${tf_repo%%|*}"
+    fetch_tag_job "$tf_repo" "${TF_ST[i]}" > "$JOB_DIR/tag.$i.out" 2>&1 &
+    TF_PID+=($!)
+  done
+  while (( TF_HEAD < ${#TF_PID[@]} )); do
+    wait "${TF_PID[TF_HEAD]}" || true
+    TF_HEAD=$((TF_HEAD + 1))
+  done
+
+  # Pass 3: decide in conf order from pins or fetched tags.
+  for i in "${!PEND_META[@]}"; do
+    meta="${PEND_META[i]}"
+    name="${meta%%|*}"
+    rest="${meta#*|}"
+    repo="${rest%%|*}"
+    rest="${rest#*|}"
+    pattern="${rest%%|*}"
+    binary="${rest#*|}"
+    if [[ -n "${PEND_PIN[i]}" ]]; then
+      local_tag="${PEND_PIN[i]}"
+    else
+      local_tag="$(cat "${TF_ST[i]}" 2>/dev/null || true)"
+    fi
+    latest="${local_tag#v}"
+    installed=$(get_installed_version "$name")
+    if [[ -z "$local_tag" ]]; then
+      failed+=("$name|could not fetch latest release tag")
+    elif [[ -z "$installed" || "$installed" != "$latest" ]]; then
+      to_upgrade+=("$name|$repo|$pattern|$binary|$local_tag|$latest")
+      if [[ -n "${PEND_PIN[i]}" ]]; then
+        to_upgrade_display+=("$name: ${installed:-unknown} → $latest (pinned)")
+      else
+        to_upgrade_display+=("$name: ${installed:-unknown} → $latest")
+      fi
+    elif [[ -n "${PEND_PIN[i]}" ]]; then
+      echo "current $name ($installed, pinned)"
+    else
+      echo "current $name ($installed)"
+    fi
+  done
+fi
 
 # --- outdated: report only, never install ---
 if $OUTDATED; then
@@ -564,24 +767,9 @@ if [[ ${#to_install[@]} -gt 0 ]]; then
     would_install=("${to_install_names[@]}")
   elif prompt_yes "Install them now?" true; then
     for entry in "${to_install[@]}"; do
-      IFS='|' read -r name repo pattern binary version_pin <<< "$entry"
-      echo "installing $name..."
-      if [[ -n "$version_pin" ]]; then
-        tag="$version_pin"
-      else
-        tag=$(fetch_latest_tag "$repo")
-      fi
-      version="${tag#v}"
-      if [[ -z "$tag" ]]; then
-        failed+=("$name|could not fetch latest release tag")
-        continue
-      fi
-      if install_binary "$name" "$repo" "$pattern" "$binary" "$tag" "$version"; then
-        installed_count=$((installed_count + 1))
-      else
-        failed+=("$name|install failed (see above)")
-      fi
+      pool_submit install "$entry"
     done
+    pool_drain
   elif ! $DRY_RUN; then
     for n in "${to_install_names[@]}"; do skipped+=("$n|user declined install"); done
   fi
@@ -599,14 +787,9 @@ if [[ ${#to_upgrade[@]} -gt 0 ]]; then
     for d in "${to_upgrade_display[@]}"; do would_upgrade+=("$d"); done
   elif prompt_yes "Upgrade all?" true; then
     for entry in "${to_upgrade[@]}"; do
-      IFS='|' read -r name repo pattern binary tag version <<< "$entry"
-      echo "upgrading $name..."
-      if install_binary "$name" "$repo" "$pattern" "$binary" "$tag" "$version"; then
-        updated_count=$((updated_count + 1))
-      else
-        failed+=("$name|upgrade failed (see above)")
-      fi
+      pool_submit upgrade "$entry"
     done
+    pool_drain
   elif ! $DRY_RUN; then
     for d in "${to_upgrade_display[@]}"; do
       n="${d%%:*}"

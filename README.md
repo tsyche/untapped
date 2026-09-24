@@ -67,6 +67,8 @@ ln -s "$PWD/bin/untapped" ~/.local/bin/untapped
 | `GITHUB_TOKEN` | optional; raises GitHub API rate limits (Bearer auth) |
 | `UNTAPPED_BIN_DIR` | override install dir (default `~/.local/bin`) |
 | `UNTAPPED_SHARE_DIR` | override version state dir (default `~/.local/share/untapped`) |
+| `UNTAPPED_JOBS` | default for `-j` |
+| `UNTAPPED_RETRIES` | default for `--retries` |
 
 ## CLI
 
@@ -84,10 +86,14 @@ Options:
   -c, --config PATH      conf file
   -y, --yes              non-interactive; accept all prompts
   -n, --dry-run          show what would change; install nothing
+  -j, --jobs N           parallel install jobs (default: 4; 1 = serial)
+      --retries N        retries for transient failures (default: 2; 0 = off)
       --upgrade          same as the upgrade subcommand
 ```
 
 Non-interactive runs without `--yes` fail fast with a clear message (no silent hang). Cron/launchd should pass `--yes`.
+
+Installs, upgrades, and latest-tag fetches run up to 4 jobs in parallel (`-j 1` restores strict serial), with bounded retry + backoff on transient download/API failures (`--retries`, default 2). Output drains in submission order, so the console and exit summary read like a serial run.
 
 ### `untapped add`
 
