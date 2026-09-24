@@ -34,7 +34,9 @@ teardown_test_env() {
 # Layout expected under $FIXTURES:
 #   api/<owner>_<repo>.json          → API releases/latest body
 #   assets/<escaped-or-slug>         → raw body written when -o used
-# Every request is appended to $FIXTURES/curl.log (attempt counts in tests).
+#   hosts/<url-slug>                 → any non-GitHub https URL (see helpers)
+# Every request is appended to $FIXTURES/curl.log (attempt counts in tests),
+# with any -H values logged as "  hdr: ..." lines below the URL.
 # Optional: $MOCK_CURL_FAIL → a URL substring whose matching requests fail
 # Optional: $MOCK_CURL_FAIL_ONCE → matching requests fail once, then succeed
 install_mock_curl() {
@@ -43,6 +45,7 @@ install_mock_curl() {
 set -euo pipefail
 url=""
 out=""
+hdrs=()
 args=("$@")
 i=0
 while [[ $i -lt ${#args[@]} ]]; do
@@ -54,6 +57,7 @@ while [[ $i -lt ${#args[@]} ]]; do
       ;;
     -H)
       i=$((i + 1))
+      hdrs+=("${args[$i]}")
       ;;
     -fsSL|-s|-S|-f|-L|-sS)
       ;;
@@ -70,7 +74,13 @@ if [[ -z "$url" ]]; then
 fi
 
 fixtures="${MOCK_FIXTURES:?MOCK_FIXTURES not set}"
-printf '%s\n' "$url" >> "$fixtures/curl.log"
+# One append per request so concurrent (parallel-job) requests can't
+# interleave a URL line with another request's header lines.
+block="$url"
+for h in ${hdrs[@]+"${hdrs[@]}"}; do
+  block+=$'\n  hdr: '"$h"
+done
+printf '%s\n' "$block" >> "$fixtures/curl.log"
 
 if [[ -n "${MOCK_CURL_FAIL:-}" && "$url" == *"${MOCK_CURL_FAIL}"* ]]; then
   exit 22
@@ -85,7 +95,7 @@ if [[ -n "${MOCK_CURL_FAIL_ONCE:-}" && "$url" == *"${MOCK_CURL_FAIL_ONCE}"* ]]; 
 fi
 
 # GitHub API releases/latest
-if [[ "$url" == *"/releases/latest"* ]]; then
+if [[ "$url" == https://api.github.com/* && "$url" == *"/releases/latest"* ]]; then
   # https://api.github.com/repos/owner/repo/releases/latest
   path="${url#*api.github.com/repos/}"
   path="${path%/releases/latest}"
@@ -101,6 +111,21 @@ if [[ "$url" == *"/releases/latest"* ]]; then
     cat "$body"
   fi
   exit 0
+fi
+
+# Generic non-GitHub host: full-URL fixture keyed by a slug of the URL
+if [[ "$url" == https://* && "$url" != *github.com/* ]]; then
+  slug="${url//[!A-Za-z0-9._-]/_}"
+  body="$fixtures/hosts/$slug"
+  if [[ -f "$body" ]]; then
+    if [[ -n "$out" ]]; then
+      cp "$body" "$out"
+    else
+      cat "$body"
+    fi
+    exit 0
+  fi
+  exit 22
 fi
 
 # Release asset / checksum download
@@ -178,6 +203,23 @@ write_asset() {
   else
     cat > "$FIXTURES/assets/$name"
   fi
+}
+
+# Fixtures for non-GitHub https URLs (version pages and downloads).
+host_slug() {
+  printf '%s' "${1//[!A-Za-z0-9._-]/_}"
+}
+
+# write_host_text <url> <text>
+write_host_text() {
+  mkdir -p "$FIXTURES/hosts"
+  printf '%s\n' "$2" > "$FIXTURES/hosts/$(host_slug "$1")"
+}
+
+# write_host_file <url> <src-path>
+write_host_file() {
+  mkdir -p "$FIXTURES/hosts"
+  cp "$2" "$FIXTURES/hosts/$(host_slug "$1")"
 }
 
 run_untapped() {

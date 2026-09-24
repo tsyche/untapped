@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/tsyche/untapped/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tsyche/untapped/actions/workflows/ci.yml?query=branch%3Amain)
 
-**TL;DR:** Install CLI binaries and macOS app bundles straight from GitHub releases — when brew doesn't bottle them (or even if it does; anything with a release is fair game) — via a plain-text package list. Add a repository, then install or upgrade its release assets.
+**TL;DR:** Install CLI binaries and macOS app bundles straight from GitHub releases — or from any plain HTTPS host — when brew doesn't bottle them (or even if it does; anything with a release is fair game) — via a plain-text package list. Add a repository, then install or upgrade its release assets.
 
 Zero runtime deps beyond `curl` and standard archive tools. Conf-driven: add a line, no script changes.
 
@@ -125,18 +125,19 @@ Confirms first (default **No**; `--yes` skips). Conf line is rewritten before ar
 ## Conf format
 
 ```
-name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin
+name | source | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin | version_rule
 ```
 
 | Column | Required | Notes |
 |--------|----------|-------|
 | `name` | yes | binary name on PATH; starts with a letter/digit, then letters, digits, `.`, `_`, `+`, or `-` |
-| `github_repo` | yes | `owner/repo` |
-| `asset_pattern` | yes | may use `{VERSION}` `{OS}` `{ARCH}` |
+| `source` | yes | GitHub `owner/repo`, or an `https://` URL whose response body carries the latest version |
+| `asset_pattern` | yes | GitHub: asset filename; generic source: full `https://` download URL. May use `{VERSION}` `{OS}` `{ARCH}` |
 | `binary_in_archive` | yes | relative path inside archive; supports `{VERSION}`; `*.app/Contents/MacOS/*` keeps the whole bundle |
 | `os_filter` | no | `darwin` or `linux` |
 | `arch_filter` | no | `arm64` or `amd64` |
 | `version_pin` | no | pin a release tag (e.g. `v1.2.3`); empty = latest |
+| `version_rule` | no | generic sources only: POSIX ERE matched against the `source` response (default: a dotted version like `1.2.3`); must match exactly the version text; may contain `\|` (last field) |
 
 Placeholders:
 
@@ -145,6 +146,17 @@ Placeholders:
 - `{ARCH}` — `arm64` or `amd64`
 
 Omit (or leave empty) `os_filter` / `arch_filter` / `version_pin` to match any / use latest. Mismatched entries are skipped with a reason in the exit summary, before download.
+
+### Non-GitHub sources
+
+A `source` that starts with `https://` makes the entry generic: `untapped` fetches that URL, extracts the latest version by `version_rule` (first match; default picks a dotted version), then downloads `asset_pattern` with the placeholders substituted. Works for plain-text version endpoints, project pages, CDNs — anywhere with stable URLs:
+
+```
+# name | source | asset_pattern (full URL) | binary | os | arch | pin | version_rule
+tool | https://dl.example.com/tool/latest | https://cdn.example.com/tool/{VERSION}/tool-{VERSION}-{OS}-{ARCH}.tar.gz | tool | | | |
+```
+
+Notes: pin with `version_pin` to skip discovery entirely; if the page has decoy numbers, tighten `version_rule` (e.g. `[0-9]+\.[0-9]+\.[0-9]+`); checksum verification is skipped (no convention outside GitHub); `untapped add` still only understands GitHub — generic lines are hand-written in the conf. `GITHUB_TOKEN` is never sent to non-GitHub hosts.
 
 ### Examples
 

@@ -2,15 +2,11 @@
 
 **TL;DR:** Active installer work. Shipped history lives in the ledger.
 
-Conf-driven GitHub-release installer — active work only. Shipped history: [docs/ledger/ROADMAP_SHIPPED.md](docs/ledger/ROADMAP_SHIPPED.md).
+Conf-driven release installer (GitHub + plain HTTPS) — active work only. Shipped history: [docs/ledger/ROADMAP_SHIPPED.md](docs/ledger/ROADMAP_SHIPPED.md).
 
 ## Recommended next
 
-1. **Non-GitHub hosts (generic HTTP assets)** — install from plain HTTPS release URLs, not only github.com. Effort: L
-
-## High priority backlog
-
-- [ ] First tagged release — cut `v0.1.0` + `gh release create`. Effort: S · 🧑 needs-human: version choice and public publish decision
+1. **First tagged release** — cut `v0.1.0` + `gh release create`. Effort: S · 🧑 needs-human: version choice and public publish decision
 
 ## Remaining backlog
 

@@ -27,37 +27,86 @@ valid_version_pin() {
 }
 
 validate_entry() {
-  valid_name "$1" && valid_repo "$2" && valid_asset "$3" && safe_relative_path "$4" \
-    && [[ "$5" == '' || "$5" == darwin || "$5" == linux ]] \
-    && [[ "$6" == '' || "$6" == arm64 || "$6" == amd64 ]] \
-    && valid_version_pin "${7:-}"
+  valid_name "$1" || return 1
+  safe_relative_path "$4" || return 1
+  [[ "$5" == '' || "$5" == darwin || "$5" == linux ]] || return 1
+  [[ "$6" == '' || "$6" == arm64 || "$6" == amd64 ]] || return 1
+  valid_version_pin "${7:-}" || return 1
+  valid_version_rule "${8:-}" || return 1
+  if is_generic_source "$2"; then
+    valid_source "$2" && valid_url_template "$3"
+  else
+    valid_repo "$2" && valid_asset "$3"
+  fi
 }
 
-github_curl() {
+# A generic source is an https URL whose response body carries the latest
+# version. Anything else is a GitHub owner/repo.
+is_generic_source() {
+  [[ "$1" == https://* ]]
+}
+
+valid_source() {
+  if [[ "$1" == https://* ]]; then
+    [[ "$1" != *[[:space:]]* && "$1" != *[[:cntrl:]]* && "$1" != *'|'* ]]
+  else
+    valid_repo "$1"
+  fi
+}
+
+# Generic asset_pattern: a full https URL template with a usable filename
+# (query/fragment stripped when probing the final segment).
+valid_url_template() {
+  local f
+  [[ "$1" == https://* && "$1" != *[[:space:]]* && "$1" != *[[:cntrl:]]* && "$1" != *'|'* ]] || return 1
+  f="${1##*/}"
+  f="${f%%\?*}"
+  f="${f%%#*}"
+  [[ -n "$f" ]]
+}
+
+# Optional POSIX ERE applied to the generic source body; the regex must match
+# exactly the version text (first match wins). grep exit 2 = invalid regex.
+valid_version_rule() {
+  local st=0
+  [[ -z "$1" ]] && return 0
+  [[ "$1" != *[[:cntrl:]]* ]] || return 1
+  printf '' | grep -Eq "$1" 2>/dev/null || st=$?
+  [[ $st -ne 2 ]]
+}
+
+# HTTPS-only fetch for every request (GitHub API, release assets, checksum
+# probes, generic version/download URLs). GITHUB_TOKEN goes to GitHub hosts
+# only — never to other hosts.
+http_curl() {
   local url="$1"
   shift
   case "$url" in
-    https://api.github.com/*|https://github.com/*) ;;
-    *) echo 'untapped: refusing non-GitHub download URL' >&2; return 1 ;;
+    https://*) ;;
+    *) echo 'untapped: refusing non-HTTPS download URL' >&2; return 1 ;;
   esac
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl -fsSL --proto '=https' --proto-redir '=https' -H "Authorization: Bearer $GITHUB_TOKEN" "$@" "$url"
-  else
-    curl -fsSL --proto '=https' --proto-redir '=https' "$@" "$url"
-  fi
+  case "$url" in
+    https://api.github.com/*|https://github.com/*)
+      if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        curl -fsSL --proto '=https' --proto-redir '=https' -H "Authorization: Bearer $GITHUB_TOKEN" "$@" "$url"
+        return
+      fi
+      ;;
+  esac
+  curl -fsSL --proto '=https' --proto-redir '=https' "$@" "$url"
 }
 
 # Retry wrapper for transient failures (network drops, 5xx, rate limits).
 # UNTAPPED_RETRIES = attempts after the first (default 2; 0 = no retries).
 # Linear backoff: 1s, 2s, ... Not used for checksum probes — a missing
 # checksums file is the common case and must stay a cheap single miss.
-github_curl_retry() {
+http_curl_retry() {
   local retries=2 n=1
   if [[ -n "${UNTAPPED_RETRIES:-}" && "${UNTAPPED_RETRIES}" =~ ^[0-9]+$ ]]; then
     retries="${UNTAPPED_RETRIES}"
   fi
   while true; do
-    if github_curl "$@"; then
+    if http_curl "$@"; then
       return 0
     fi
     if (( n > retries )); then

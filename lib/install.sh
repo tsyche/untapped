@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Install or upgrade CLI binaries from GitHub releases.
+# Install or upgrade CLI binaries from GitHub releases or generic HTTPS hosts.
 # Scans a conf file for what's missing or outdated, prompts before acting
 # (or use --yes). Verifies sha256 against the release's checksums file when
-# one exists (best-effort — silent skip if not published).
+# one exists (best-effort — silent skip if not published; GitHub entries
+# only — generic sources have no checksum convention).
 # Downloads run in parallel (-j, default 4) with bounded retries for
 # transient failures (--retries, default 2).
 #
@@ -28,7 +29,7 @@ EXAMPLE_CONF="$ROOT/conf/untapped.conf.example"
 
 usage() {
   cat <<'EOF'
-untapped — install/upgrade CLI binaries from GitHub releases
+untapped — install/upgrade CLI binaries from release hosts (GitHub or plain HTTPS)
 
 Usage:
   untapped                 install missing packages
@@ -131,7 +132,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Flag > env > default. Export the effective retries value so background
-# install jobs and github_curl_retry agree on it.
+# install jobs and http_curl_retry agree on it.
 JOBS="${JOBS_ARG:-${UNTAPPED_JOBS:-4}}"
 RETRIES="${RETRIES_ARG:-${UNTAPPED_RETRIES:-2}}"
 if ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
@@ -206,7 +207,8 @@ else
 
   cat > "$DEFAULT_USER_CONF" <<'EOF'
 # untapped package list — one per line.
-# Format: name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin
+# Format: name | source | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin | version_rule
+# source: owner/repo (GitHub) or an https URL returning the latest version.
 # Add a package:  untapped add https://github.com/owner/repo
 # Starter set:    cp conf/untapped.conf.example ~/.config/untapped/conf
 EOF
@@ -258,7 +260,7 @@ if $DOCTOR; then
   installed_n=0
   missing_n=0
   filtered_n=0
-  while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin || [[ -n "$name" ]]; do
+  while IFS='|' read -r name source pattern binary os_filter arch_filter version_pin version_rule || [[ -n "$name" ]]; do
     name="${name//[[:space:]]/}"
     [[ -z "$name" || "$name" == \#* ]] && continue
     os_filter="${os_filter// /}"
@@ -287,7 +289,7 @@ fi
 # --- list: local inventory only (conf + PATH + version state; no network) ---
 if $LIST; then
   printf '%-24s %s\n' "PACKAGE" "STATUS"
-  while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin || [[ -n "$name" ]]; do
+  while IFS='|' read -r name source pattern binary os_filter arch_filter version_pin version_rule || [[ -n "$name" ]]; do
     name="${name//[[:space:]]/}"
     [[ -z "$name" || "$name" == \#* ]] && continue
     valid_name "$name" || { echo "untapped: invalid package name: $name" >&2; exit 1; }
@@ -322,10 +324,28 @@ set_installed_version() {
   fi
 }
 
+# Latest version for a conf source:
+#   owner/repo  → GitHub API releases/latest tag
+#   https URL   → first match of version_rule in the response body
+#                 (default rule: a dotted version, e.g. 1.2.3 or v1.2.3)
 fetch_latest_tag() {
-  local repo="$1"
-  github_curl_retry "https://api.github.com/repos/$repo/releases/latest" \
-    | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
+  local source="$1" rule="${2:-}"
+  if is_generic_source "$source"; then
+    http_curl_retry "$source" 2>/dev/null \
+      | LC_ALL=C grep -Eao "${rule:-[0-9]+(\.[0-9]+)+}" 2>/dev/null | head -1 || true
+  else
+    http_curl_retry "https://api.github.com/repos/$source/releases/latest" \
+      | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
+  fi
+}
+
+# Failure wording depends on the source kind (tests and users key on it).
+fetch_fail_reason() {
+  if is_generic_source "$1"; then
+    echo "could not fetch latest version"
+  else
+    echo "could not fetch latest release tag"
+  fi
 }
 
 sha256_of() {
@@ -352,7 +372,7 @@ verify_checksum() {
   )
   local cand expected=""
   for cand in "${candidates[@]}"; do
-    if github_curl "https://github.com/$repo/releases/download/${tag}/${cand}" -o "$workdir/checksums.txt" 2>/dev/null; then
+    if http_curl "https://github.com/$repo/releases/download/${tag}/${cand}" -o "$workdir/checksums.txt" 2>/dev/null; then
       expected=$(awk -v f="$asset" '{n=$2; sub(/^\*/, "", n); if(n==f) {print $1; exit}}' "$workdir/checksums.txt")
       [[ -n "$expected" ]] && break
     fi
@@ -378,39 +398,59 @@ verify_checksum() {
 install_binary() (
   # A subshell gives each package its own cleanup trap. Every fallible operation
   # is checked explicitly: callers use this function in an `if`, disabling -e.
-  local name="$1" repo="$2" pattern="$3" binary="$4" tag="$5" version="$6"
+  local name="$1" source="$2" pattern="$3" binary="$4" tag="$5" version="$6"
   local asset="${pattern//\{VERSION\}/$version}"
   asset="${asset//\{OS\}/$OS}"
   asset="${asset//\{ARCH\}/$ARCH}"
   binary="${binary//\{VERSION\}/$version}"
-  if ! valid_asset "$asset" || ! safe_relative_path "$binary"; then
+  local url fname ok=true
+  if is_generic_source "$source"; then
+    # asset_pattern is already a full https URL template.
+    if [[ "$asset" != https://* || "$asset" == *[[:space:]]* || "$asset" == *[[:cntrl:]]* ]]; then
+      ok=false
+    fi
+    fname="${asset##*/}"
+    fname="${fname%%\?*}"
+    fname="${fname%%#*}"
+    [[ -n "$fname" ]] || ok=false
+    url="$asset"
+  else
+    valid_asset "$asset" || ok=false
+    fname="$asset"
+    url="https://github.com/$source/releases/download/${tag}/${asset}"
+  fi
+  safe_relative_path "$binary" || ok=false
+  if ! $ok; then
     echo "FAILED: $name (invalid asset or binary path)"
     return 1
   fi
-  local url="https://github.com/$repo/releases/download/${tag}/${asset}"
   local tmpdir staged="" listing found bundle_name found_bundle bundle_root backup=""
   tmpdir=$(mktemp -d) || return 1
   tmpdir=$(cd "$tmpdir" && pwd -P) || return 1
   trap 'rm -rf "$tmpdir"; if [[ -n "$staged" ]]; then rm -f "$staged"; fi' EXIT
-  if ! github_curl_retry "$url" -o "$tmpdir/$asset"; then
+  if ! http_curl_retry "$url" -o "$tmpdir/$fname"; then
     echo "FAILED: $name (download failed: $url)"
     return 1
   fi
-  verify_checksum "$name" "$repo" "$tag" "$version" "$asset" "$tmpdir/$asset" "$tmpdir" || return 1
+  # Checksum probes follow GitHub release conventions only; generic hosts
+  # have no standard checksums-file location.
+  if ! is_generic_source "$source"; then
+    verify_checksum "$name" "$source" "$tag" "$version" "$fname" "$tmpdir/$fname" "$tmpdir" || return 1
+  fi
   mkdir "$tmpdir/unpacked" || return 1
-  if ! listing=$(list_archive "$tmpdir/$asset") || ! validate_listing "$listing"; then
+  if ! listing=$(list_archive "$tmpdir/$fname") || ! validate_listing "$listing"; then
     echo "FAILED: $name (unsafe archive or unreadable asset)"
     return 1
   fi
-  case "$asset" in
-    *.tar.gz|*.tgz) tar -xzf "$tmpdir/$asset" -C "$tmpdir/unpacked" || return 1 ;;
-    *.tar.bz2|*.tbz) tar -xjf "$tmpdir/$asset" -C "$tmpdir/unpacked" || return 1 ;;
-    *.tar.xz|*.txz) tar -xJf "$tmpdir/$asset" -C "$tmpdir/unpacked" || return 1 ;;
-    *.tar) tar -xf "$tmpdir/$asset" -C "$tmpdir/unpacked" || return 1 ;;
-    *.zip) unzip -q "$tmpdir/$asset" -d "$tmpdir/unpacked" || return 1 ;;
+  case "$fname" in
+    *.tar.gz|*.tgz) tar -xzf "$tmpdir/$fname" -C "$tmpdir/unpacked" || return 1 ;;
+    *.tar.bz2|*.tbz) tar -xjf "$tmpdir/$fname" -C "$tmpdir/unpacked" || return 1 ;;
+    *.tar.xz|*.txz) tar -xJf "$tmpdir/$fname" -C "$tmpdir/unpacked" || return 1 ;;
+    *.tar) tar -xf "$tmpdir/$fname" -C "$tmpdir/unpacked" || return 1 ;;
+    *.zip) unzip -q "$tmpdir/$fname" -d "$tmpdir/unpacked" || return 1 ;;
     *)
       mkdir -p "$tmpdir/unpacked/$(dirname "$binary")" || return 1
-      cp "$tmpdir/$asset" "$tmpdir/unpacked/$binary" || return 1 ;;
+      cp "$tmpdir/$fname" "$tmpdir/unpacked/$binary" || return 1 ;;
   esac
   if ! validate_extraction "$tmpdir/unpacked"; then
     echo "FAILED: $name (unsafe archive links or special files)"
@@ -489,8 +529,8 @@ IP_KIND=()
 IP_HEAD=0
 
 fetch_tag_job() (
-  local repo="$1" stf="$2" tag
-  tag="$(fetch_latest_tag "$repo")"
+  local source="$1" rule="${2:-}" stf="$3" tag
+  tag="$(fetch_latest_tag "$source" "$rule")"
   if [[ -z "$tag" ]]; then
     exit 1
   fi
@@ -498,19 +538,19 @@ fetch_tag_job() (
 )
 
 run_install_job() (
-  local name="$1" repo="$2" pattern="$3" binary="$4" version_pin="$5" statusf="$6"
+  local name="$1" source="$2" pattern="$3" binary="$4" version_pin="$5" rule="$6" statusf="$7"
   local tag version
   if [[ -n "$version_pin" ]]; then
     tag="$version_pin"
   else
-    tag="$(fetch_latest_tag "$repo")"
+    tag="$(fetch_latest_tag "$source" "$rule")"
   fi
   if [[ -z "$tag" ]]; then
-    echo "could not fetch latest release tag" > "$statusf"
+    fetch_fail_reason "$source" > "$statusf"
     exit 1
   fi
   version="${tag#v}"
-  if install_binary "$name" "$repo" "$pattern" "$binary" "$tag" "$version"; then
+  if install_binary "$name" "$source" "$pattern" "$binary" "$tag" "$version"; then
     printf 'ok|%s\n' "$version" > "$statusf"
     exit 0
   fi
@@ -519,8 +559,8 @@ run_install_job() (
 )
 
 run_upgrade_job() (
-  local name="$1" repo="$2" pattern="$3" binary="$4" tag="$5" version="$6" statusf="$7"
-  if install_binary "$name" "$repo" "$pattern" "$binary" "$tag" "$version"; then
+  local name="$1" source="$2" pattern="$3" binary="$4" tag="$5" version="$6" statusf="$7"
+  if install_binary "$name" "$source" "$pattern" "$binary" "$tag" "$version"; then
     printf 'ok|%s\n' "$version" > "$statusf"
     exit 0
   fi
@@ -574,17 +614,18 @@ pool_drain() {
 
 pool_submit() {
   local kind="$1" entry="$2"
-  local name repo pattern binary version_pin tag version
+  local name source pattern binary version_pin rule tag version
   local outf="$JOB_DIR/out.${#IP_PID[@]}" stf="$JOB_DIR/st.${#IP_PID[@]}"
   pool_capacity_wait
   if [[ "$kind" == install ]]; then
-    IFS='|' read -r name repo pattern binary version_pin <<< "$entry"
+    # rule rides last so it may itself contain '|' (regex alternation).
+    IFS='|' read -r name source pattern binary version_pin rule <<< "$entry"
     echo "installing $name..."
-    run_install_job "$name" "$repo" "$pattern" "$binary" "$version_pin" "$stf" > "$outf" 2>&1 &
+    run_install_job "$name" "$source" "$pattern" "$binary" "$version_pin" "$rule" "$stf" > "$outf" 2>&1 &
   else
-    IFS='|' read -r name repo pattern binary tag version <<< "$entry"
+    IFS='|' read -r name source pattern binary tag version <<< "$entry"
     echo "upgrading $name..."
-    run_upgrade_job "$name" "$repo" "$pattern" "$binary" "$tag" "$version" "$stf" > "$outf" 2>&1 &
+    run_upgrade_job "$name" "$source" "$pattern" "$binary" "$tag" "$version" "$stf" > "$outf" 2>&1 &
   fi
   IP_PID+=($!)
   IP_META+=("$entry")
@@ -628,18 +669,22 @@ would_install=()
 would_upgrade=()
 PEND_META=()
 PEND_PIN=()
+PEND_RULE=()
 
-while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin || [[ -n "$name" ]]; do
+while IFS='|' read -r name source pattern binary os_filter arch_filter version_pin version_rule || [[ -n "$name" ]]; do
   name="${name//[[:space:]]/}"
   [[ -z "$name" || "$name" == \#* ]] && continue
-  repo="${repo// /}"
+  source="${source// /}"
   pattern="${pattern// /}"
   binary="${binary// /}"
   os_filter="${os_filter// /}"
   arch_filter="${arch_filter// /}"
   version_pin="${version_pin// /}"
+  # version_rule: trim conf padding only — inner spaces matter in regexes.
+  version_rule="${version_rule#"${version_rule%%[![:space:]]*}"}"
+  version_rule="${version_rule%"${version_rule##*[![:space:]]}"}"
 
-  if ! validate_entry "$name" "$repo" "$pattern" "$binary" "$os_filter" "$arch_filter" "$version_pin"; then
+  if ! validate_entry "$name" "$source" "$pattern" "$binary" "$os_filter" "$arch_filter" "$version_pin" "$version_rule"; then
     failed+=("$name|invalid conf entry")
     continue
   fi
@@ -655,15 +700,16 @@ while IFS='|' read -r name repo pattern binary os_filter arch_filter version_pin
 
   if $UPGRADE; then
     if ! command -v "$name" &>/dev/null; then
-      to_install+=("$name|$repo|$pattern|$binary|$version_pin")
+      to_install+=("$name|$source|$pattern|$binary|$version_pin|$version_rule")
       to_install_names+=("$name")
     else
-      PEND_META+=("$name|$repo|$pattern|$binary")
+      PEND_META+=("$name|$source|$pattern|$binary")
       PEND_PIN+=("$version_pin")
+      PEND_RULE+=("$version_rule")
     fi
   else
     if ! command -v "$name" &>/dev/null; then
-      to_install+=("$name|$repo|$pattern|$binary|$version_pin")
+      to_install+=("$name|$source|$pattern|$binary|$version_pin|$version_rule")
       to_install_names+=("$name")
     else
       echo "skip $name (already installed: $(command -v "$name"))"
@@ -687,9 +733,9 @@ if [[ ${#PEND_META[@]} -gt 0 ]]; then
       TF_HEAD=$((TF_HEAD + 1))
     done
     tf_meta="${PEND_META[i]}"
-    tf_repo="${tf_meta#*|}"
-    tf_repo="${tf_repo%%|*}"
-    fetch_tag_job "$tf_repo" "${TF_ST[i]}" > "$JOB_DIR/tag.$i.out" 2>&1 &
+    tf_source="${tf_meta#*|}"
+    tf_source="${tf_source%%|*}"
+    fetch_tag_job "$tf_source" "${PEND_RULE[i]}" "${TF_ST[i]}" > "$JOB_DIR/tag.$i.out" 2>&1 &
     TF_PID+=($!)
   done
   while (( TF_HEAD < ${#TF_PID[@]} )); do
@@ -702,7 +748,7 @@ if [[ ${#PEND_META[@]} -gt 0 ]]; then
     meta="${PEND_META[i]}"
     name="${meta%%|*}"
     rest="${meta#*|}"
-    repo="${rest%%|*}"
+    source="${rest%%|*}"
     rest="${rest#*|}"
     pattern="${rest%%|*}"
     binary="${rest#*|}"
@@ -714,9 +760,9 @@ if [[ ${#PEND_META[@]} -gt 0 ]]; then
     latest="${local_tag#v}"
     installed=$(get_installed_version "$name")
     if [[ -z "$local_tag" ]]; then
-      failed+=("$name|could not fetch latest release tag")
+      failed+=("$name|$(fetch_fail_reason "$source")")
     elif [[ -z "$installed" || "$installed" != "$latest" ]]; then
-      to_upgrade+=("$name|$repo|$pattern|$binary|$local_tag|$latest")
+      to_upgrade+=("$name|$source|$pattern|$binary|$local_tag|$latest")
       if [[ -n "${PEND_PIN[i]}" ]]; then
         to_upgrade_display+=("$name: ${installed:-unknown} → $latest (pinned)")
       else

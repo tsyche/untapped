@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# untapped — manage GitHub-release binaries (install/upgrade)
+# untapped — manage release binaries (install/upgrade; GitHub or plain HTTPS)
 set -euo pipefail
 
 # Resolve symlinks so we find the real repo even when called via ~/.local/bin

@@ -1,7 +1,11 @@
 # GitHub release binaries to install when not already in PATH.
 # Copy this file to ~/.config/untapped/conf and edit — no script changes needed.
 #
-# Format: name | github_repo | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin
+# Format: name | source | asset_pattern | binary_in_archive | os_filter | arch_filter | version_pin | version_rule
+#
+# source: GitHub owner/repo, or an https URL returning the latest version
+# (version_rule: optional regex matched against that response; default picks
+# a dotted version — keep it matching exactly the version text).
 #
 # Placeholders in asset_pattern:
 #   {VERSION} — release tag, v-prefix stripped (latest, or version_pin if set)
@@ -21,7 +25,7 @@
 # (Virtualization/Hypervisor, etc.), which get SIGKILLed if the binary is
 # flattened out of the bundle (confirmed with tart).
 #
-# Examples — four common shapes:
+# Examples — common shapes:
 
 # Flat archive, OS+arch in the filename:
 usql    | xo/usql        | usql-{VERSION}-{OS}-{ARCH}.tar.bz2 | usql                         |        |
@@ -34,3 +38,7 @@ softnet | openai/softnet | softnet.tar.gz                     | softnet         
 
 # Bare AppImage, Linux x86_64 only (arch token not in every asset name):
 shotcut | mltframework/shotcut | shotcut-linux-x86_64-{VERSION}.AppImage | shotcut | linux | amd64
+
+# Non-GitHub source: version page in field 2, full download URL in field 3
+# (asset_pattern with {VERSION}/{OS}/{ARCH}), optional regex in the last field:
+# comma | https://dl.example.com/comma/latest | https://cdn.example.com/comma/{VERSION}/comma-{VERSION}-{OS}-{ARCH}.tar.gz | comma | | | |

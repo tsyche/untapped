@@ -139,6 +139,7 @@ esac
 if ! REPO="$(parse_repo "$INPUT")"; then
   echo "untapped add: not a GitHub repo URL or owner/repo: $INPUT" >&2
   echo "Expected: https://github.com/owner/repo  (or owner/repo)" >&2
+  echo "Non-GitHub source? Hand-write a conf line (see README, Conf format)" >&2
   exit 1
 fi
 
@@ -148,7 +149,7 @@ if ! valid_name "$PKG_NAME"; then
   exit 1
 fi
 
-release_json="$(github_curl "https://api.github.com/repos/$REPO/releases/latest")" || {
+release_json="$(http_curl "https://api.github.com/repos/$REPO/releases/latest")" || {
   echo "untapped add: could not fetch latest release for $REPO" >&2
   exit 1
 }
@@ -312,7 +313,14 @@ trap 'rm -rf "$tmpdir"' EXIT
 valid_asset "$CHOSEN_NAME" || { echo 'untapped add: invalid asset filename' >&2; exit 1; }
 asset_path="$tmpdir/$CHOSEN_NAME"
 
-if ! github_curl "$CHOSEN_URL" -o "$asset_path"; then
+# Asset URLs come from API metadata: keep add downloads on GitHub even though
+# the shared fetch allows generic https hosts for conf-driven sources.
+case "$CHOSEN_URL" in
+  https://github.com/*) ;;
+  *) echo 'untapped add: refusing non-GitHub asset URL' >&2; exit 1 ;;
+esac
+
+if ! http_curl "$CHOSEN_URL" -o "$asset_path"; then
   echo "untapped add: download failed: $CHOSEN_URL" >&2
   exit 1
 fi

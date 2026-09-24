@@ -4,6 +4,7 @@
 
 ## Shipped index
 
+- [x] 2026-09-24 — Non-GitHub hosts (generic HTTPS sources)
 - [x] 2026-09-24 — Parallel installs / retry
 - [x] 2026-09-24 — `untapped remove`
 - [x] 2026-09-24 — `untapped doctor`
@@ -19,6 +20,10 @@
 - [x] 2026-09-23 — One-time legacy ghr version-state migration
 
 ## Archived entries
+
+### 2026-09-24 — Non-GitHub hosts (generic HTTPS sources)
+
+1. **Non-GitHub hosts (generic HTTP assets)** — install from plain HTTPS release URLs, not only github.com. Effort: L
 
 ### 2026-09-24 — Parallel installs / retry
 
