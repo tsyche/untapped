@@ -26,6 +26,13 @@ teardown() {
   [[ "$output" == *"--jobs"* ]]
 }
 
+@test "ut symlink dispatches to the same engine" {
+  run "$REPO_ROOT/bin/ut" help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"untapped — install/upgrade CLI binaries"* ]]
+  [[ "$output" == *"lint"* ]]
+}
+
 @test "help conf default does not claim packaged example" {
   run run_untapped help
   [ "$status" -eq 0 ]

@@ -50,10 +50,10 @@ First run with no conf:
 - **`--yes`** — takes the default (seed from example); no install until you run again.
 - **No TTY, no `--yes`** — empty conf + guidance (script-safe); never installs from the packaged example implicitly.
 
-Optional: put `bin/` on `PATH`, or symlink:
+Optional: put `bin/` on `PATH`, or symlink — `bin/ut` ships as a symlink to `bin/untapped`, so either name works:
 
 ```sh
-ln -s "$PWD/bin/untapped" ~/.local/bin/untapped
+ln -s "$PWD/bin/untapped" ~/.local/bin/untapped   # or name it ut
 ```
 
 ### Conf discovery order

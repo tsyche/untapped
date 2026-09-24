@@ -20,7 +20,7 @@ just sync-docs       # CLAUDE.md <-> AGENTS.md
 
 ## Key files
 
-- `bin/untapped` — CLI entry; dispatches `add` → `lib/add.sh`, `remove` → `lib/remove.sh`, else `lib/install.sh`
+- `bin/untapped` — CLI entry; dispatches `add` → `lib/add.sh`, `remove` → `lib/remove.sh`, else `lib/install.sh`; `bin/ut` is a symlink to it
 - `lib/install.sh` — install/upgrade/list/doctor/outdated/lint/why engine + conf discovery + first-run seed
 - `lib/common.sh` — shared field validation, HTTPS downloads (token sent to GitHub hosts only), archive inspection
 - `lib/add.sh` — GitHub URL or https version-page URL → conf line (asset pick, binary sniff, append)
