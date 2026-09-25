@@ -32,6 +32,7 @@ git clone https://github.com/tsyche/untapped.git
 cd untapped
 
 ./bin/untapped help
+./bin/ut                      # shortcut — identical binary, shorter name
 ./bin/untapped                 # first run: prompt to seed conf from example (Enter = yes)
 ./bin/untapped add https://github.com/xo/usql
 ./bin/untapped list            # conf entries + installed / not on PATH (offline)
