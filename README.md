@@ -229,7 +229,7 @@ Failed:
 just setup && just test && just lint && just check-docs
 ```
 
-CI: shellcheck + check-docs on `ubuntu-24.04`; bats on `ubuntu-24.04` and `macos-latest` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Tests mock `curl` with fixtures — no network needed. See [CONTRIBUTING.md](CONTRIBUTING.md) for PR basics and [ROADMAP.md](ROADMAP.md) for planned work.
+CI: shellcheck + check-docs on `ubuntu-26.04`; bats on `ubuntu-26.04` and `macos-latest` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Tests mock `curl` with fixtures — no network needed. See [CONTRIBUTING.md](CONTRIBUTING.md) for PR basics and [ROADMAP.md](ROADMAP.md) for planned work.
 
 ## License
 
