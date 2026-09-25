@@ -55,6 +55,7 @@ Options:
 
 Environment:
   GITHUB_TOKEN             optional; raises API rate limits
+  GH_TOKEN                 fallback when GITHUB_TOKEN is unset
   UNTAPPED_JOBS            default for -j
   UNTAPPED_RETRIES         default for --retries
 EOF

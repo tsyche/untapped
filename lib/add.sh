@@ -35,6 +35,7 @@ Options:
 
 Environment:
   GITHUB_TOKEN             optional; raises API rate limits
+  GH_TOKEN                 fallback when GITHUB_TOKEN is unset
 EOF
 }
 

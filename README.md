@@ -67,6 +67,7 @@ ln -s "$PWD/bin/untapped" ~/.local/bin/untapped   # or name it ut
 | Var | Purpose |
 |-----|---------|
 | `GITHUB_TOKEN` | optional; raises GitHub API rate limits (Bearer auth) |
+| `GH_TOKEN` | fallback when `GITHUB_TOKEN` is unset (matches `gh`'s env) |
 | `UNTAPPED_BIN_DIR` | override install dir (default `~/.local/bin`) |
 | `UNTAPPED_SHARE_DIR` | override version state dir (default `~/.local/share/untapped`) |
 | `UNTAPPED_JOBS` | default for `-j` |
@@ -94,6 +95,8 @@ Options:
       --retries N        retries for transient failures (default: 2; 0 = off)
       --upgrade          same as the upgrade subcommand
 ```
+
+Every command works as `ut …` too — `bin/ut` is a symlink to `bin/untapped`.
 
 Non-interactive runs without `--yes` fail fast with a clear message (no silent hang). Cron/launchd should pass `--yes`.
 
@@ -176,7 +179,7 @@ A `source` that starts with `https://` makes the entry generic: `untapped` fetch
 tool | https://dl.example.com/tool/latest | https://cdn.example.com/tool/{VERSION}/tool-{VERSION}-{OS}-{ARCH}.tar.gz | tool | | | |
 ```
 
-Notes: pin with `version_pin` to skip discovery entirely; if the page has decoy numbers, tighten `version_rule` (e.g. `[0-9]+\.[0-9]+\.[0-9]+`); checksum verification is skipped (no convention outside GitHub); `untapped add` handles these too — version-page URLs or direct download URLs (see [`untapped add`](#untapped-add)). `GITHUB_TOKEN` is never sent to non-GitHub hosts.
+Notes: pin with `version_pin` to skip discovery entirely; if the page has decoy numbers, tighten `version_rule` (e.g. `[0-9]+\.[0-9]+\.[0-9]+`); checksum verification is skipped (no convention outside GitHub); `untapped add` handles these too — version-page URLs or direct download URLs (see [`untapped add`](#untapped-add)). `GITHUB_TOKEN` (or `GH_TOKEN`) is never sent to non-GitHub hosts.
 
 ### Examples
 

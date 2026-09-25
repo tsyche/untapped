@@ -76,8 +76,9 @@ valid_version_rule() {
 }
 
 # HTTPS-only fetch for every request (GitHub API, release assets, checksum
-# probes, generic version/download URLs). GITHUB_TOKEN goes to GitHub hosts
-# only — never to other hosts.
+# probes, generic version/download URLs). GITHUB_TOKEN — or GH_TOKEN when
+# GITHUB_TOKEN is unset (matches gh's env) — goes to GitHub hosts only —
+# never to other hosts.
 http_curl() {
   local url="$1"
   shift
@@ -87,8 +88,9 @@ http_curl() {
   esac
   case "$url" in
     https://api.github.com/*|https://github.com/*)
-      if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        curl -fsSL --proto '=https' --proto-redir '=https' -H "Authorization: Bearer $GITHUB_TOKEN" "$@" "$url"
+      local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+      if [[ -n "$token" ]]; then
+        curl -fsSL --proto '=https' --proto-redir '=https' -H "Authorization: Bearer $token" "$@" "$url"
         return
       fi
       ;;

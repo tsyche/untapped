@@ -6,12 +6,10 @@ Conf-driven release installer (GitHub + plain HTTPS) — active work only. Shipp
 
 ## Recommended next
 
-1. **Accept GH_TOKEN as token fallback** — one exported token serves both untapped and `gh`. Effort: S
-2. **Generic sources: sha256 sidecar checksums** — closes the integrity gap for non-GitHub installs. Effort: M
+1. **Generic sources: sha256 sidecar checksums** — closes the integrity gap for non-GitHub installs. Effort: M
 
 ## High priority backlog
 
-- [ ] **Accept GH_TOKEN as token fallback** — `http_curl` falls back to `GH_TOKEN` when `GITHUB_TOKEN` is unset (matches `gh`'s env), so one exported token serves both. Effort: S
 - [ ] **Generic sources: sha256 sidecar checksums** — probe `.sha256`/`SHA256SUMS` sibling URLs next to a generic asset and verify when present (GitHub convention stays as-is). Effort: M
 - [ ] **`untapped test-rule <url>`** — dry-run version discovery + candidate scrape against any page; prints extracted version and numbered links without touching conf. Effort: S
 - [ ] **`outdated --json` / CI exit codes** — machine-readable mode so a cron job can fail when updates exist (self-updating CLI runner pattern). Effort: S

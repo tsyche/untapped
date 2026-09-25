@@ -4,6 +4,7 @@
 
 ## Shipped index
 
+- [x] 2026-09-24 — `GH_TOKEN` fallback for GitHub API auth
 - [x] 2026-09-24 — First tagged release (`v0.1.0`)
 - [x] 2026-09-24 — `untapped lint` (conf validator)
 - [x] 2026-09-24 — `untapped why <name>` (single-entry debug)
@@ -24,6 +25,10 @@
 - [x] 2026-09-23 — One-time legacy ghr version-state migration
 
 ## Archived entries
+
+### 2026-09-24 — `GH_TOKEN` fallback for GitHub API auth
+
+1. **Accept GH_TOKEN as token fallback** — `http_curl` falls back to `GH_TOKEN` when `GITHUB_TOKEN` is unset (matches `gh`'s env), so one exported token serves both; GitHub hosts only. Effort: S
 
 ### 2026-09-24 — First tagged release (`v0.1.0`)
 

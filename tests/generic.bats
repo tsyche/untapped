@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 # Generic (non-GitHub) HTTPS sources: conf-driven installs from anywhere.
+# shellcheck disable=SC2030,SC2031
 
 load test_helper
 
@@ -162,6 +163,44 @@ make_tgz() {
   run grep -A1 -E '^https://(dl|cdn)\.example\.com' "$FIXTURES/curl.log"
   [ "$status" -eq 0 ]
   [[ "$output" != *"Authorization"* ]]
+}
+
+@test "GH_TOKEN is used when GITHUB_TOKEN is unset, GitHub hosts only" {
+  make_tgz ghpkg 1.0.0
+  write_api_json ex ghpkg v1.0.0
+  write_asset ghpkg-1.0.0.tar.gz "$TEST_TMP/ghpkg-1.0.0.tar.gz"
+  write_host_text 'https://dl.example.com/tool/latest' 'tool 1.2.3'
+  make_tgz tool 1.2.3
+  write_host_file 'https://cdn.example.com/tool/1.2.3/tool-1.2.3.tar.gz' "$TEST_TMP/tool-1.2.3.tar.gz"
+  write_conf "$TEST_TMP/conf" \
+    'tool | https://dl.example.com/tool/latest | https://cdn.example.com/tool/{VERSION}/tool-{VERSION}.tar.gz | tool | | | |' \
+    'ghpkg | ex/ghpkg | ghpkg-{VERSION}.tar.gz | ghpkg | | | |'
+  unset GITHUB_TOKEN
+  export GH_TOKEN=gh-fallback-token
+
+  run run_untapped --yes -c "$TEST_TMP/conf"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Installed: 2"* ]]
+  grep -A1 '^https://api.github.com' "$FIXTURES/curl.log" | grep -q 'hdr: Authorization: Bearer gh-fallback-token'
+  run grep -A1 -E '^https://(dl|cdn)\.example\.com' "$FIXTURES/curl.log"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Authorization"* ]]
+}
+
+@test "GITHUB_TOKEN wins over GH_TOKEN when both are set" {
+  make_tgz ghpkg 1.0.0
+  write_api_json ex ghpkg v1.0.0
+  write_asset ghpkg-1.0.0.tar.gz "$TEST_TMP/ghpkg-1.0.0.tar.gz"
+  write_conf "$TEST_TMP/conf" \
+    'ghpkg | ex/ghpkg | ghpkg-{VERSION}.tar.gz | ghpkg | | | |'
+  export GITHUB_TOKEN=primary-token
+  export GH_TOKEN=fallback-token
+
+  run run_untapped --yes -c "$TEST_TMP/conf"
+  [ "$status" -eq 0 ]
+  grep -A1 '^https://api.github.com' "$FIXTURES/curl.log" | grep -q 'hdr: Authorization: Bearer primary-token'
+  run grep -q 'Bearer fallback-token' "$FIXTURES/curl.log"
+  [ "$status" -ne 0 ]
 }
 
 @test "list and doctor survive a version_rule with spaces and pipes" {
