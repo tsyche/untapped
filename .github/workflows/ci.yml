@@ -24,14 +24,14 @@ jobs:
   docs:
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v4
       - name: check-docs
         run: just check-docs
   shellcheck:
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: shellcheck
         run: |
           sudo apt-get update -qq
@@ -44,7 +44,7 @@ jobs:
         os: [ubuntu-26.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install bats
         run: |
           if ! command -v bats >/dev/null 2>&1; then
